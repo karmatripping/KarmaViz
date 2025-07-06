@@ -1,0 +1,128 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.10.16)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+[36mDEBUG[0m - karmaviz - Multisampling attributes set in pygame
+[36mDEBUG[0m - karmaviz - Main OpenGL window created
+[36mDEBUG[0m - karmaviz - OpenGL context created
+[36mDEBUG[0m - karmaviz - Logo loaded for initial display
+[36mDEBUG[0m - karmaviz.audio_handler - Stream inactive, attempting to restart...
+[36mDEBUG[0m - karmaviz - Audio processor started successfully
+[36mDEBUG[0m - karmaviz.karmaviz - ModernGL multisampling enabled via context property
+[36mDEBUG[0m - karmaviz.karmaviz - Line smoothing handled by MSAA
+[36mDEBUG[0m - karmaviz.karmaviz - Line width set to 2.0
+[36mDEBUG[0m - karmaviz.karmaviz - Cleared texture 0 directly
+[36mDEBUG[0m - karmaviz.karmaviz - Cleared texture 1 directly
+Loaded 121 warp maps in 14 categories
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 0: Creating shared OpenGL context...
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 1: Creating shared OpenGL context...
+[36mDEBUG[0m - karmaviz.shader_compiler - Started 2 shader compilation worker threads
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 0: Created context - OpenGL 330
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 1: Created context - OpenGL 330
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 0: Context test successful
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 1: Context test successful
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 0: Created independent OpenGL context
+[36mDEBUG[0m - karmaviz.shader_compiler - Worker 1: Created independent OpenGL context
+[36mDEBUG[0m - karmaviz.karmaviz - Available waveforms: arcade, atari_sound, aurora_borealis, binary_cascade, binary_pulse, black_hole_accretion, breathing, cellular_growth, chaos_theory, chaos_wave, chebyshev_poly, chiptune, circuit_board, commodore_sid, coral_reef, cosmic_microwave, crt_scanlines, crystalline, crystalline_resonance, cyber_grid, dark_matter_web, data_stream, dimensional_rift, dna_helix, dragon_curve, electric_bolt, energy_field, exponential, fibonacci_spiral, flames, floating_orbs, force_field, fourier_series, fractal, fractal_mandelbrot, fragment_grid_test, galaxy_spiral, gameboy_wave, geometric_mandala, glitch_wave, gravitational_wave, heartbeat, hologram, holographic_display, hyperbolic_tan, ice, jellyfish_pulse, julia_morph, julia_set, koch_snowflake, laser_beam, laser_beams, laser_grid, laser_scanner, led_matrix, lightning_enhanced, lightning_storm, liquid_metal, lissajous_curves, logarithmic, mandelbrot_wave, mandelbrot_zoom, matrix_rain_glyphs, mycelium_network, nebula_cloud, neural_network, normal, ocean_waves, orbital_dance, organic_growth, parametric_surface, pendulum_swing, pixel_matrix, plasma, polar_equations, polar_waves, pulsar_beam, pulse, pulse_width_mod, quantum, quantum_interference, quantum_tunnel, ripple_rings, ripples, sawtooth_wave, sierpinski_audio, sierpinski_triangle, simple_bars, sine_modulation, sine_wave, solar_flare, spectrogram, spirograph, spotlights, squared, stepped_blocks_2d, stepped_circular_pattern, stepped_grid_pattern, stepped_matrix_display, stepped_radial_waves, stepped_vertical_levels, stepped_wave, storm_chaos, strange_attractor, supernova_shockwave, test_error_waveform, tree_growth, triangle_wave, vector_scope, vocal_formant, warp_drive, wave_interference, wind_patterns, wormhole_portal
+[36mDEBUG[0m - karmaviz.karmaviz - Starting with waveform: {self.current_waveform_name} ({self.current_waveform_index + 1}/{len(available_waveforms)})
+[36mDEBUG[0m - karmaviz.karmaviz - Compiling main shader...
+[36mDEBUG[0m - karmaviz.karmaviz - Selected warp map: metamorphic_geometry
+[36mDEBUG[0m - karmaviz.karmaviz - [AsyncShader] Requesting compilation for warp map: metamorphic_geometry
+[36mDEBUG[0m - karmaviz.shader_compiler - [ThreadedCompiler] Submitted shader source preparation request 53289da7-25fe-472c-b469-d9715cdb2e81 with priority 10
+[36mDEBUG[0m - karmaviz.shader_compiler - [Worker 0] Compiling shader for request 53289da7-25fe-472c-b469-d9715cdb2e81
+[36mDEBUG[0m - karmaviz.karmaviz - [AsyncShader] Submitted async compilation request {request_id} for warp map: {warp_map_name}
+[36mDEBUG[0m - karmaviz.waveform_manager - Waveform normal shader code loaded...
+[36mDEBUG[0m - karmaviz.karmaviz - [AsyncShader] Requesting compilation for waveform: neural_network
+[36mDEBUG[0m - karmaviz.shader_compiler - [Worker 0] Successfully compiled shader for 53289da7-25fe-472c-b469-d9715cdb2e81 in 20.57ms
+[36mDEBUG[0m - karmaviz.shader_compiler - [ThreadedCompiler] Submitted shader source preparation request c61fa01b-5158-4509-8819-9cd2a066c8aa with priority 8
+[36mDEBUG[0m - karmaviz.shader_compiler - [Worker 0] Compiling shader for request c61fa01b-5158-4509-8819-9cd2a066c8aa
+[36mDEBUG[0m - karmaviz.karmaviz - [AsyncShader] Submitted async compilation request c61fa01b-5158-4509-8819-9cd2a066c8aa for waveform: neural_network
+[36mDEBUG[0m - karmaviz.waveform_manager - Waveform neural_network shader code loaded...
+[36mDEBUG[0m - karmaviz.karmaviz - Randomly selected waveform: neural_network - compiling in background...
+[36mDEBUG[0m - karmaviz.shader_compiler - [Worker 0] Successfully compiled shader for c61fa01b-5158-4509-8819-9cd2a066c8aa in 19.78ms
+[36mDEBUG[0m - karmaviz.waveform_manager - Waveform neural_network shader code loaded...
+[36mDEBUG[0m - karmaviz.karmaviz - Main shader compiled with waveform: neural_network
+[36mDEBUG[0m - karmaviz.karmaviz - Compiling spectrogram shader...
+[36mDEBUG[0m - karmaviz.karmaviz - Spectrogram shader compiled
+[36mDEBUG[0m - karmaviz.waveform_manager - Waveform neural_network shader code loaded...
+[36mDEBUG[0m - karmaviz.karmaviz - Loaded 'neural_network' waveform shader
+[36mDEBUG[0m - karmaviz.karmaviz - Created main textures with {self.anti_aliasing_samples}x multisampling
+[36mDEBUG[0m - karmaviz.karmaviz - Cleared main framebuffer (multisampled textures)
+[36mDEBUG[0m - karmaviz.karmaviz - Cleared feedback framebuffer
+[36mDEBUG[0m - karmaviz.karmaviz - Texture 0 cleared via framebuffer (multisampled): multisample textures cannot be written directly
+[36mDEBUG[0m - karmaviz.karmaviz - Texture 1 cleared via framebuffer (multisampled): multisample textures cannot be written directly
+[36mDEBUG[0m - karmaviz.karmaviz - Loaded 121 warp maps for integrated rendering
+[36mDEBUG[0m - karmaviz.karmaviz - [AsyncShader] Requesting compilation for warp map: ripple_pond
+[36mDEBUG[0m - karmaviz.shader_compiler - [ThreadedCompiler] Submitted shader source preparation request 9bb8350a-e38c-4d01-8c29-b160e83f503b with priority 10
+[36mDEBUG[0m - karmaviz.shader_compiler - [Worker 1] Compiling shader for request 9bb8350a-e38c-4d01-8c29-b160e83f503b
+[36mDEBUG[0m - karmaviz.karmaviz - [AsyncShader] Submitted async compilation request {request_id} for warp map: {warp_map_name}
+[36mDEBUG[0m - karmaviz.karmaviz - Randomly selected warp map on startup: ripple_pond (key: ripple_pond)
+[36mDEBUG[0m - karmaviz.karmaviz - GPU waveform system initialized with 1024 waveform samples and 256 FFT samples
+[36mDEBUG[0m - karmaviz.karmaviz - Loading logo texture...
+[36mDEBUG[0m - karmaviz.karmaviz - ModernGL context available: True
+[36mDEBUG[0m - karmaviz.waveform_manager - Waveform neural_network shader code loaded...
+[36mDEBUG[0m - karmaviz.shader_compiler - [Worker 1] Successfully compiled shader for 9bb8350a-e38c-4d01-8c29-b160e83f503b in 17.99ms
+[36mDEBUG[0m - karmaviz.karmaviz - Logo supersampled to {supersample_factor}x: size={self.logo_size}
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture created (no MSAA - required for direct write): size={self.logo_size}
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture data written successfully
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture mipmaps generated for enhanced anti-aliasing
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture loaded with enhanced anti-aliasing: {self.logo_size[0]}x{self.logo_size[1]}
+ Loaded 24 .kviz presets from presets
+[36mDEBUG[0m - karmaviz - Preset manager initialized
+[36mDEBUG[0m - karmaviz.config_menu - Stored pygame window ID: 69206021
+[36mDEBUG[0m - karmaviz.config_menu - Positioned config menu on primary monitor at (1070, 50)
+[36mDEBUG[0m - karmaviz.config_menu - Creating waveform editor with waveform manager
+[36mDEBUG[0m - karmaviz.config_menu - Creating palette editor with palette manager
+[36mDEBUG[0m - karmaviz.config_menu - Creating warp map editor with warp map manager
+[36mDEBUG[0m - karmaviz.warp_map_editor - Warp map editor preview callback set
+[36mDEBUG[0m - karmaviz.config_menu - Warp map preview callback set on existing editor
+[36mDEBUG[0m - karmaviz - FPS updated to: 120.0 (frame_interval: 0.0083s)
+[36mDEBUG[0m - karmaviz.karmaviz - Rotation mode: Clockwise
+[36mDEBUG[0m - karmaviz.karmaviz - Rotation speed: 5.00
+[36mDEBUG[0m - karmaviz.karmaviz - Rotation amplitude: 3.00
+[36mDEBUG[0m - karmaviz.audio_handler - Changing audio buffer size from 1024 to 512
+[36mDEBUG[0m - karmaviz.audio_handler - Stream inactive, attempting to restart...
+[36mDEBUG[0m - karmaviz.audio_handler - Audio buffer size changed to 512
+[36mDEBUG[0m - karmaviz.audio_handler - Changing sample rate from 80000 to 96000
+[36mDEBUG[0m - karmaviz.audio_handler - Stream inactive, attempting to restart...
+[36mDEBUG[0m - karmaviz.audio_handler - Sample rate changed to 96000
+[36mDEBUG[0m - karmaviz.karmaviz - Anti-aliasing updated to: 16x MSAA
+[36mDEBUG[0m - karmaviz.karmaviz - Loading logo texture...
+[36mDEBUG[0m - karmaviz.karmaviz - ModernGL context available: True
+[36mDEBUG[0m - karmaviz.karmaviz - Logo supersampled to {supersample_factor}x: size={self.logo_size}
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture created (no MSAA - required for direct write): size={self.logo_size}
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture data written successfully
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture mipmaps generated for enhanced anti-aliasing
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture loaded with enhanced anti-aliasing: {self.logo_size[0]}x{self.logo_size[1]}
+[36mDEBUG[0m - karmaviz.karmaviz - Logo texture reloaded with new anti-aliasing settings
+[36mDEBUG[0m - karmaviz - [DEBUG] Registered config menu callbacks: ['width', 'height', 'fps', 'rotation_mode', 'rotation_speed', 'rotation_amplitude', 'pulse_enabled', 'pulse_intensity', 'trail_intensity', 'glow_intensity', 'palette_speed', 'gpu_waveform_random', 'animation_speed', 'audio_speed_boost', 'symmetry_mode', 'smoke_intensity', 'warp_intensity', 'beat_sensitivity', 'chunk_size', 'sample_rate', 'color_cycle_speed', 'palette_transition_speed', 'color_transition_smoothness', 'transitions_paused', 'beats_per_change', 'waveform_scale', 'gpu_waveform_enabled', 'warp_first', 'bounce_enabled', 'bounce_intensity', 'fullscreen_resolution', 'anti_aliasing', 'selected_palette']
+[36mDEBUG[0m - karmaviz - Applying initial settings from config menu...
+[36mDEBUG[0m - karmaviz - FPS updated to: 120.0 (frame_interval: 0.0083s)
+[36mDEBUG[0m - karmaviz.karmaviz - Anti-aliasing updated to: 16x MSAA
+[36mDEBUG[0m - karmaviz.karmaviz - Rotation mode: Clockwise
+[36mDEBUG[0m - karmaviz.karmaviz - Rotation speed: 5.00
+[36mDEBUG[0m - karmaviz.karmaviz - Rotation amplitude: 3.00
+[36mDEBUG[0m - karmaviz - Applied 31 initial settings to visualizer
+KarmaViz initialized successfully!
+Press 'TAB' to open the configuration menu
+Press 'F11' to toggle fullscreen
+Press 'q' or ESC to quit
+[36mDEBUG[0m - karmaviz.shader_compiler - [ThreadedCompiler] Compiled validated program on main thread for 53289da7-25fe-472c-b469-d9715cdb2e81 (validation: 20.57ms, main: 6.82ms)
+[36mDEBUG[0m - karmaviz.shader_compiler - [ThreadedCompiler] Compiled validated program on main thread for c61fa01b-5158-4509-8819-9cd2a066c8aa (validation: 19.78ms, main: 15.08ms)
+[36mDEBUG[0m - karmaviz.shader_compiler - [ThreadedCompiler] Compiled validated program on main thread for 9bb8350a-e38c-4d01-8c29-b160e83f503b (validation: 17.99ms, main: 13.79ms)
+[36mDEBUG[0m - karmaviz.karmaviz - Clearing feedback frame5
+[36mDEBUG[0m - karmaviz.karmaviz - Clearing feedback frame4
+[36mDEBUG[0m - karmaviz.karmaviz - Clearing feedback frame3
+[36mDEBUG[0m - karmaviz.karmaviz - Clearing feedback frame2
+[36mDEBUG[0m - karmaviz.karmaviz - Clearing feedback frame1
+[36mDEBUG[0m - karmaviz.karmaviz - 🔇 Silence detected ({self.current_amplitude:.4f} < {self.silence_threshold:.4f}) - fading in logo
+
+=== Performance Stats for All Functions ===
+audio_process_chunk       | Latest:   1.63ms | Avg:   2.62ms | Min:   0.64ms | Max:  13.52ms | Count:  100
+threaded_shader_compilation | Latest:  18.68ms | Avg:  20.16ms | Min:  18.68ms | Max:  21.13ms | Count:    3
+audio_get_data            | Latest:   0.00ms | Avg:   0.03ms | Min:   0.00ms | Max:   0.43ms | Count:  100
+compile_on_main_thread    | Latest:  14.76ms | Avg:  12.61ms | Min:   7.46ms | Max:  15.61ms | Count:    3
+process_shader_results    | Latest:   0.04ms | Avg:   0.03ms | Min:   0.01ms | Max:   0.08ms | Count:  100
+analyze_mood              | Latest:   0.13ms | Avg:   0.57ms | Min:   0.11ms | Max:   6.53ms | Count:   15
+[32mINFO[0m - karmaviz - Cleaning up main loop...
+[31mERROR[0m - karmaviz - 
+Received keyboard interrupt. Shutting down gracefully...
+[36mDEBUG[0m - karmaviz - Cleaning up...

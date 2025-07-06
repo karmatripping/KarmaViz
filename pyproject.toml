@@ -1,0 +1,165 @@
+[build-system]
+requires = [
+    "setuptools>=60.0.0",
+    "wheel",
+    "Cython>=0.29.0",
+    "numpy>=1.21.0"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karmaviz"
+version = "1.0.0"
+description = "A cutting-edge, GPU-accelerated audio visualizer for Linux with real-time GLSL shader compilation"
+readme = "README.md"
+license = {file = "LICENSE.md"}
+authors = [
+    {name = "Karma Swint", email = "karma@karmaviz.biz"}
+]
+maintainers = [
+    {name = "Karma Swint", email = "karma@karmaviz.biz"}
+]
+keywords = [
+    "audio",
+    "visualizer",
+    "opengl",
+    "glsl",
+    "shaders",
+    "music",
+    "visualization",
+    "gpu",
+    "real-time"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: Other/Proprietary License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+    "Topic :: Games/Entertainment",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "PyQt5>=5.15.0",
+    "pygame>=2.1.0",
+    "moderngl>=5.6.0",
+    "sounddevice>=0.4.0",
+    "numpy>=1.21.0",
+    "Cython>=0.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0.0",
+    "pytest-cov>=2.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "mypy>=0.900",
+]
+build = [
+    "build>=0.7.0",
+    "twine>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/KarmaSwint/KarmaViz"
+Repository = "https://github.com/KarmaSwint/KarmaViz"
+Issues = "https://github.com/KarmaSwint/KarmaViz/issues"
+Documentation = "https://github.com/KarmaSwint/KarmaViz/blob/main/README.md"
+
+[project.scripts]
+karmaviz = "main:main"
+
+[tool.setuptools]
+packages = ["modules", "config", "shaders"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = [
+    "*.json",
+    "*.glsl",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "waveforms/**/*",
+    "warp_maps/**/*",
+    "palettes/**/*",
+    "presets/**/*",
+    "shaders/**/*",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | karmaviz\.build
+)/
+'''
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+]
+python_files = [
+    "test_*.py",
+    "*_test.py",
+]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pygame.*",
+    "moderngl.*",
+    "sounddevice.*",
+    "PyQt5.*",
+]
+ignore_missing_imports = true
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = [
+    "E203",  # whitespace before ':'
+    "W503",  # line break before binary operator
+]
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "karmaviz.build",
+    "*.egg-info",
+]
