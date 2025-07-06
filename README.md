@@ -217,7 +217,7 @@ sudo apt install build-essential
 sudo apt install python3-pyqt5 python3-pyqt5.qtopengl
 
 # Clone and setup KarmaViz
-git clone https://github.com/KarmaSwint/karmaviz.git
+git clone https://github.com/karmatripping/karmaviz
 cd karmaviz
 python3 -m venv karmaviz-env
 source karmaviz-env/bin/activate
