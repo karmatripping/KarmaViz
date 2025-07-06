@@ -107,7 +107,7 @@ python main.py --debug
 
 ```bash
 # Clone the repository
-git clone https://github.com/KarmaSwint/karmaviz.git
+git clone https://github.com/karmatripping/karmaviz
 cd karmaviz
 
 # Install in development mode (recommended for contributors)
