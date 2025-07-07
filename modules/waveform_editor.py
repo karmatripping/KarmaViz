@@ -407,6 +407,7 @@ class WaveformEditor(QWidget):
         self.waveform_manager = waveform_manager
         self.current_waveform: Optional[WaveformInfo] = None
         self.current_waveform_key: Optional[str] = None  # Store the waveform name
+        self.original_waveform_backup: Optional[WaveformInfo] = None  # Backup of original for revert
         self.unsaved_changes = False
         self.preview_callback = None  # Callback for live preview
         self.show_preview = show_preview  # Control whether to show preview section
@@ -899,6 +900,11 @@ class WaveformEditor(QWidget):
 
         self.current_waveform = waveform_info
         self.current_waveform_key = waveform_name
+        
+        # Create a deep copy backup of the original waveform for revert functionality
+        import copy
+        self.original_waveform_backup = copy.deepcopy(waveform_info)
+        
         self.unsaved_changes = False
 
         # Set loading flag to prevent change detection
@@ -1102,6 +1108,7 @@ class WaveformEditor(QWidget):
 
         self.current_waveform = new_waveform
         self.current_waveform_key = None  # New waveform, not saved yet
+        self.original_waveform_backup = None  # Clear backup for new waveforms
 
         # Set loading flag to prevent change detection during UI updates
         self._loading_waveform = True
@@ -1158,6 +1165,29 @@ class WaveformEditor(QWidget):
         if self.waveform_manager.save_waveform(
             duplicate_waveform, subdirectory=duplicate_waveform.category
         ):
+            # Load the duplicated waveform into the editor
+            self.current_waveform = duplicate_waveform
+            self.current_waveform_key = duplicate_name
+            self.original_waveform_backup = None  # Clear backup for duplicated waveforms
+            
+            # Set loading flag to prevent change detection
+            self._loading_waveform = True
+            
+            # Update UI with duplicated waveform
+            self.code_editor.setPlainText(duplicate_waveform.glsl_code)
+            self.name_edit.setText(duplicate_waveform.name)
+            self.description_edit.setPlainText(duplicate_waveform.description)
+            self.author_edit.setText(duplicate_waveform.author)
+            self.category_edit.setCurrentText(duplicate_waveform.category)
+            self.complexity_combo.setCurrentText(duplicate_waveform.complexity)
+            self.builtin_checkbox.setChecked(duplicate_waveform.is_builtin)
+            
+            # Clear loading flag and set unsaved changes
+            self._loading_waveform = False
+            self.unsaved_changes = True
+            self.save_button.setEnabled(True)
+            self.revert_button.setEnabled(False)  # No backup yet for duplicated waveform
+            
             self.load_waveform_list()
             QMessageBox.information(
                 self, "Success", f"Waveform duplicated as '{duplicate_name}'"
@@ -1188,6 +1218,7 @@ class WaveformEditor(QWidget):
                 self.load_waveform_list()
                 self.current_waveform = None
                 self.current_waveform_key = None
+                self.original_waveform_backup = None  # Clear backup
                 self.unsaved_changes = False
                 self.code_editor.clear()
                 self.name_edit.clear()
@@ -1295,18 +1326,53 @@ class WaveformEditor(QWidget):
 
     def revert_changes(self):
         """Revert changes to the current waveform"""
-        if not self.current_waveform_key:
-            return
+        if self.original_waveform_backup and self.current_waveform_key:
+            reply = QMessageBox.question(
+                self,
+                "Confirm Revert",
+                "Are you sure you want to revert all changes?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
 
-        reply = QMessageBox.question(
-            self,
-            "Confirm Revert",
-            "Are you sure you want to revert all changes?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-
-        if reply == QMessageBox.Yes:
-            self.load_waveform(self.current_waveform_key)
+            if reply == QMessageBox.Yes:
+                # Restore from the backup copy instead of reloading from disk
+                import copy
+                self.current_waveform = copy.deepcopy(self.original_waveform_backup)
+                
+                # Set loading flag to prevent change detection
+                self._loading_waveform = True
+                
+                # Load the backup data into the UI
+                self.code_editor.setPlainText(self.original_waveform_backup.glsl_code)
+                self.name_edit.setText(self.original_waveform_backup.name)
+                self.description_edit.setPlainText(self.original_waveform_backup.description)
+                self.author_edit.setText(self.original_waveform_backup.author)
+                self.category_edit.setCurrentText(self.original_waveform_backup.category)
+                self.complexity_combo.setCurrentText(self.original_waveform_backup.complexity)
+                self.builtin_checkbox.setChecked(self.original_waveform_backup.is_builtin)
+                
+                # Clear loading flag
+                self._loading_waveform = False
+                
+                # Clear unsaved changes flag
+                self.unsaved_changes = False
+                self.save_button.setEnabled(False)
+                self.revert_button.setEnabled(False)
+                
+                # Update preview with reverted waveform
+                if self.show_preview and self.auto_preview_checkbox.isChecked():
+                    self.update_preview()
+                
+                # Apply reverted waveform for live preview if callback exists
+                if self.preview_callback:
+                    self.apply_waveform_preview(self.current_waveform)
+                    
+                print(f"Reverted waveform '{self.current_waveform.name}' to original backup")
+                
+        elif not self.original_waveform_backup:
+            print(f"No backup available for current waveform")
+        elif not self.current_waveform_key:
+            print(f"No filename key available for current waveform")
 
     def export_waveform(self):
         """Export the current waveform"""
@@ -1359,6 +1425,29 @@ class WaveformEditor(QWidget):
                 if self.waveform_manager.save_waveform(
                     waveform_info, overwrite=True, subdirectory=waveform_info.category
                 ):
+                    # Load the imported waveform into the editor
+                    self.current_waveform = waveform_info
+                    self.current_waveform_key = waveform_info.name
+                    self.original_waveform_backup = None  # Clear backup for imported waveforms
+                    
+                    # Set loading flag to prevent change detection
+                    self._loading_waveform = True
+                    
+                    # Update UI with imported waveform
+                    self.code_editor.setPlainText(waveform_info.glsl_code)
+                    self.name_edit.setText(waveform_info.name)
+                    self.description_edit.setPlainText(waveform_info.description)
+                    self.author_edit.setText(waveform_info.author)
+                    self.category_edit.setCurrentText(waveform_info.category)
+                    self.complexity_combo.setCurrentText(waveform_info.complexity)
+                    self.builtin_checkbox.setChecked(waveform_info.is_builtin)
+                    
+                    # Clear loading flag and set unsaved changes
+                    self._loading_waveform = False
+                    self.unsaved_changes = True
+                    self.save_button.setEnabled(True)
+                    self.revert_button.setEnabled(False)  # No backup yet for imported waveform
+                    
                     self.load_waveform_list()
                     QMessageBox.information(
                         self,
