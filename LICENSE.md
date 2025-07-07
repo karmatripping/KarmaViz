@@ -80,12 +80,16 @@ Such branding modifications require explicit written authorization and are subje
 
 Individual live streaming or for profit performance / broadcasting:
 - $29.99 for a lifetime license
+
 Individual rebranding / white label for for-profit performance / broadcasting: 
 - $99.99 for a lifetime license
+
 Corporate or commercial performance / broadcasting:
 - $199.99 for a lifetime license
+
 Rebranding / White label for corporate or commercial performance / broadcasting:
 - $499.99 for a lifetime license
+
 Rebranding / White label for resale:
 - $999.99 for a lifetime license
 
