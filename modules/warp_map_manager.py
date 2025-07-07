@@ -468,15 +468,31 @@ class WarpMapManager:
             print(f"Error saving warp map {warp_map.name}: {e}")
             return False
 
-    def delete_warp_map(self, name: str) -> bool:
-        """Delete a warp map"""
-        if name not in self.warp_maps:
+    def delete_warp_map(self, name_or_key: str) -> bool:
+        """Delete a warp map by name or filename key"""
+        # First try to find by filename key (direct lookup)
+        warp_map = None
+        key_to_delete = None
+        
+        if name_or_key in self.warp_maps:
+            # Direct key lookup
+            warp_map = self.warp_maps[name_or_key]
+            key_to_delete = name_or_key
+        else:
+            # Try to find by display name
+            for key, stored_warp_map in self.warp_maps.items():
+                if stored_warp_map.name == name_or_key:
+                    warp_map = stored_warp_map
+                    key_to_delete = key
+                    break
+        
+        if not warp_map or not key_to_delete:
+            print(f"Warp map '{name_or_key}' not found")
             return False
-
-        warp_map = self.warp_maps[name]
 
         # Don't delete built-in warp maps
         if warp_map.is_builtin:
+            print(f"Cannot delete built-in warp map '{warp_map.name}'")
             return False
 
         try:
@@ -512,21 +528,22 @@ class WarpMapManager:
                         legacy_path.unlink()
                         print(f"Deleted legacy file: {legacy_path}")
 
-            # Remove from internal storage
-            del self.warp_maps[name]
+            # Remove from internal storage using the correct key
+            del self.warp_maps[key_to_delete]
 
             # Remove from categories using filename key
             if warp_map.category in self.categories:
-                if name in self.categories[warp_map.category]:
-                    self.categories[warp_map.category].remove(name)
+                if key_to_delete in self.categories[warp_map.category]:
+                    self.categories[warp_map.category].remove(key_to_delete)
                 # Remove empty categories
                 if not self.categories[warp_map.category]:
                     del self.categories[warp_map.category]
 
+            print(f"Successfully deleted warp map '{warp_map.name}' (key: {key_to_delete})")
             return True
 
         except Exception as e:
-            print(f"Error deleting warp map {name}: {e}")
+            print(f"Error deleting warp map {name_or_key}: {e}")
             return False
 
     def _create_default_warp_maps(self):

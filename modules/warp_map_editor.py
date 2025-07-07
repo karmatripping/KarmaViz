@@ -465,6 +465,7 @@ class WarpMapEditor(QWidget):
         self.warp_map_manager = warp_map_manager
         self.current_warp_map: Optional[WarpMapInfo] = None
         self.current_warp_map_key: Optional[str] = None  # Store the filename key
+        self.original_warp_map_backup: Optional[WarpMapInfo] = None  # Backup of original for revert
         self.unsaved_changes = False
         self.preview_callback = None  # Callback for live preview
         self.show_preview = show_preview  # Control whether to show preview section
@@ -1054,6 +1055,10 @@ class WarpMapEditor(QWidget):
         self.current_warp_map = warp_map
         self.current_warp_map_key = key  # Store the filename key
 
+        # Create a deep copy backup of the original warp map for revert functionality
+        import copy
+        self.original_warp_map_backup = copy.deepcopy(warp_map)
+
         # Temporarily disconnect change handlers to avoid triggering unsaved changes
         self.code_editor.textChanged.disconnect(self.on_code_changed)
         self.name_edit.textChanged.disconnect(self.on_metadata_changed)
@@ -1237,10 +1242,53 @@ class WarpMapEditor(QWidget):
 
     def revert_changes(self):
         """Revert changes to the current warp map"""
-        if self.current_warp_map and self.current_warp_map_key:
-            # Reload the original warp map from disk
-            self.warp_map_manager.load_all_warp_maps()  # Refresh from disk
-            self.load_warp_map(self.current_warp_map_key)
+        if self.original_warp_map_backup and self.current_warp_map_key:
+            # Restore from the backup copy instead of reloading from disk
+            import copy
+            self.current_warp_map = copy.deepcopy(self.original_warp_map_backup)
+            
+            # Temporarily disconnect change handlers to avoid triggering unsaved changes
+            self.code_editor.textChanged.disconnect(self.on_code_changed)
+            self.name_edit.textChanged.disconnect(self.on_metadata_changed)
+            self.category_edit.currentTextChanged.disconnect(self.on_metadata_changed)
+            self.description_edit.textChanged.disconnect(self.on_metadata_changed)
+            self.complexity_edit.currentTextChanged.disconnect(self.on_metadata_changed)
+            self.author_edit.textChanged.disconnect(self.on_metadata_changed)
+            self.version_edit.textChanged.disconnect(self.on_metadata_changed)
+
+            # Load the backup data into the UI
+            self.code_editor.setPlainText(self.original_warp_map_backup.glsl_code)
+            self.name_edit.setText(self.original_warp_map_backup.name)
+            self.category_edit.setCurrentText(self.original_warp_map_backup.category)
+            self.description_edit.setPlainText(self.original_warp_map_backup.description)
+            self.complexity_edit.setCurrentText(self.original_warp_map_backup.complexity)
+            self.author_edit.setText(self.original_warp_map_backup.author)
+            self.version_edit.setText(self.original_warp_map_backup.version)
+
+            # Reconnect change handlers
+            self.code_editor.textChanged.connect(self.on_code_changed)
+            self.name_edit.textChanged.connect(self.on_metadata_changed)
+            self.category_edit.currentTextChanged.connect(self.on_metadata_changed)
+            self.description_edit.textChanged.connect(self.on_metadata_changed)
+            self.complexity_edit.currentTextChanged.connect(self.on_metadata_changed)
+            self.author_edit.textChanged.connect(self.on_metadata_changed)
+            self.version_edit.textChanged.connect(self.on_metadata_changed)
+
+            # Clear unsaved changes flag
+            self.unsaved_changes = False
+            self.update_ui_state()
+
+            # Update preview with reverted warp map
+            self.update_preview()
+            
+            # Apply reverted warp map for live preview if callback exists
+            if self.preview_callback:
+                self.apply_warp_map_preview(self.current_warp_map)
+                
+            logger.debug(f"Reverted warp map '{self.current_warp_map.name}' to original backup")
+            
+        elif not self.original_warp_map_backup:
+            logger.debug(f"No backup available for current warp map")
         elif not self.current_warp_map_key:
             logger.debug(f"No filename key available for current warp map")
 
@@ -1423,6 +1471,8 @@ Tips:
                 )
 
                 self.current_warp_map = new_warp_map
+                self.current_warp_map_key = None  # Clear the key for imported warp maps
+                self.original_warp_map_backup = None  # Clear backup for imported warp maps
                 self.load_warp_map_data(new_warp_map)
                 self.unsaved_changes = True
                 self.update_ui_state()
@@ -1490,6 +1540,8 @@ Tips:
         )
 
         self.current_warp_map = new_warp_map
+        self.current_warp_map_key = None  # Clear the key for new warp maps
+        self.original_warp_map_backup = None  # Clear backup for new warp maps
         self.load_warp_map_data(new_warp_map)
         self.unsaved_changes = True
         self.update_ui_state()
@@ -1512,6 +1564,8 @@ Tips:
         )
 
         self.current_warp_map = duplicate
+        self.current_warp_map_key = None  # Clear the key for duplicated warp maps
+        self.original_warp_map_backup = None  # Clear backup for duplicated warp maps
         self.load_warp_map_data(duplicate)
         self.unsaved_changes = True
         self.update_ui_state()
@@ -1530,6 +1584,8 @@ Tips:
         if reply == QMessageBox.Yes:
             if self.warp_map_manager.delete_warp_map(self.current_warp_map.name):
                 self.current_warp_map = None
+                self.current_warp_map_key = None  # Clear the key
+                self.original_warp_map_backup = None  # Clear backup
                 self.code_editor.clear()
                 self.name_edit.clear()
                 self.description_edit.clear()
