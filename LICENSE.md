@@ -31,11 +31,10 @@ This software is licensed for **personal use only** under the following terms:
    - Professional DJ performances or club events
    - Commercial streaming or broadcasting
 
-2. **Public Performance Prohibited**: You may NOT use this software for:
-   - Public performances or exhibitions
-   - Live streaming to public audiences
-   - Public events or gatherings
-   - Any form of public display or demonstration
+2. **Public Performance for profit Prohibited**: You may NOT use this software for:
+   - Public performances or exhibitions for profit
+   - Live streaming to public audiences for profit
+   - Any form of for-profit public display or demonstration
 
 3. **Distribution of Modified Versions**: You may NOT:
    - Distribute modified versions of the software
@@ -65,8 +64,8 @@ For any commercial use, public performance, or distribution of modified versions
 - Professional DJ and VJ performances
 - Commercial events and entertainment
 - Business and corporate use
-- Public streaming and broadcasting
-- Distribution of the software or derivative works
+- Public streaming and broadcasting for profit
+- Distribution of the software or derivative works for profit
 - Integration into commercial products or services
 
 **Branding Authorization**: Only authorized commercial licensees may be granted permission to:
@@ -77,7 +76,20 @@ For any commercial use, public performance, or distribution of modified versions
 
 Such branding modifications require explicit written authorization and are subject to additional licensing terms and fees.
 
-To inquire about commercial licensing, please contact the project maintainers.
+*Licensing Costs:**
+
+Individual live streaming or for profit performance / broadcasting:
+- $29.99 for a lifetime license
+Individual rebranding / white label for for-profit performance / broadcasting: 
+- $99.99 for a lifetime license
+Corporate or commercial performance / broadcasting:
+- $199.99 for a lifetime license
+Rebranding / White label for corporate or commercial performance / broadcasting:
+- $499.99 for a lifetime license
+Rebranding / White label for resale:
+- $999.99 for a lifetime license
+
+** Lifetime license includes all updates / patches to the KarmaViz software. Contact karma@karmaviz.biz for additional licensing info / payment information **
 
 ### Trademark and Intellectual Property
 
