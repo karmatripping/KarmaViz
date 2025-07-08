@@ -9,6 +9,7 @@ import moderngl
 import numpy as np
 import math
 from typing import Optional
+from modules.benchmark import benchmark
 
 
 class RotationRenderer:
@@ -127,6 +128,7 @@ class RotationRenderer:
         elif mode == -2:  # Random
             self.rotation_direction = 1 if np.random.random() > 0.5 else -1
 
+    @benchmark("update_rotation")
     def update_rotation(self, time: float, animation_speed: float = 1.0, audio_amplitude: float = 0.0, frequency_balance: float = 0.0):
         """Update rotation angle based on mode and audio input"""
         if self.rotation_mode == 0:
@@ -156,6 +158,7 @@ class RotationRenderer:
         # Keep angle in reasonable range
         self.rotation_angle = self.rotation_angle % (2 * math.pi)
 
+    @benchmark("render_with_rotation")
     def render_with_rotation(self, input_texture: moderngl.Texture) -> moderngl.Texture:
         """Apply rotation post-processing to the input texture"""
         if self.rotation_mode == 0:

@@ -181,3 +181,108 @@ def get_performance_summary() -> str:
             lines.append(f"  {name}: {stats['latest']*1000:.1f}ms (avg: {stats['avg']*1000:.1f}ms)")
     
     return "\n".join(lines)
+
+
+def get_performance_bottlenecks(threshold_ms: float = 5.0) -> Dict[str, Dict[str, float]]:
+    """Identify performance bottlenecks based on execution time threshold.
+    
+    Args:
+        threshold_ms: Threshold in milliseconds above which functions are considered bottlenecks
+        
+    Returns:
+        Dictionary of functions that exceed the threshold with their statistics
+    """
+    all_stats = _performance_monitor.get_all_stats()
+    bottlenecks = {}
+    
+    for name, stats in all_stats.items():
+        if stats["count"] > 0:
+            avg_ms = stats["avg"] * 1000
+            max_ms = stats["max"] * 1000
+            if avg_ms > threshold_ms or max_ms > threshold_ms * 2:
+                bottlenecks[name] = {
+                    "avg_ms": avg_ms,
+                    "max_ms": max_ms,
+                    "latest_ms": stats["latest"] * 1000,
+                    "count": stats["count"]
+                }
+    
+    return bottlenecks
+
+
+def print_bottleneck_report(threshold_ms: float = 5.0) -> None:
+    """Print a detailed report of performance bottlenecks.
+    
+    Args:
+        threshold_ms: Threshold in milliseconds above which functions are considered bottlenecks
+    """
+    bottlenecks = get_performance_bottlenecks(threshold_ms)
+    
+    if not bottlenecks:
+        print(f"\n✅ No performance bottlenecks found (threshold: {threshold_ms}ms)")
+        return
+    
+    print(f"\n⚠️  Performance Bottlenecks (threshold: {threshold_ms}ms)")
+    print("=" * 60)
+    
+    # Sort by average execution time
+    sorted_bottlenecks = sorted(bottlenecks.items(), key=lambda x: x[1]["avg_ms"], reverse=True)
+    
+    for name, stats in sorted_bottlenecks:
+        print(f"🔴 {name}")
+        print(f"   Average: {stats['avg_ms']:.2f}ms")
+        print(f"   Maximum: {stats['max_ms']:.2f}ms")
+        print(f"   Latest:  {stats['latest_ms']:.2f}ms")
+        print(f"   Calls:   {stats['count']}")
+        print()
+
+
+def get_benchmark_coverage_report() -> str:
+    """Generate a report showing which functions are currently being benchmarked.
+    
+    Returns:
+        Formatted report string showing benchmark coverage
+    """
+    all_stats = _performance_monitor.get_all_stats()
+    
+    if not all_stats:
+        return "No benchmarked functions found. Make sure benchmarking is enabled and the application has been running."
+    
+    lines = [
+        "📊 Benchmark Coverage Report",
+        "=" * 40,
+        f"Total benchmarked functions: {len(all_stats)}",
+        ""
+    ]
+    
+    # Group by module/category
+    categories = {
+        "Audio Processing": [],
+        "Rendering": [],
+        "Shader Operations": [],
+        "Data Processing": [],
+        "Other": []
+    }
+    
+    for name, stats in all_stats.items():
+        if stats["count"] > 0:
+            if "audio" in name.lower() or "fft" in name.lower():
+                categories["Audio Processing"].append(name)
+            elif "render" in name.lower() or "draw" in name.lower() or "rotation" in name.lower():
+                categories["Rendering"].append(name)
+            elif "shader" in name.lower() or "compile" in name.lower():
+                categories["Shader Operations"].append(name)
+            elif "update" in name.lower() or "process" in name.lower() or "color" in name.lower():
+                categories["Data Processing"].append(name)
+            else:
+                categories["Other"].append(name)
+    
+    for category, functions in categories.items():
+        if functions:
+            lines.append(f"📁 {category} ({len(functions)} functions):")
+            for func in sorted(functions):
+                stats = all_stats[func]
+                lines.append(f"   ✅ {func} ({stats['count']} calls, avg: {stats['avg']*1000:.1f}ms)")
+            lines.append("")
+    
+    return "\n".join(lines)

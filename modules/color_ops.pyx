@@ -5,11 +5,13 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
+from modules.benchmark import benchmark
 
 # Define types for faster operations
 ctypedef np.float32_t DTYPE_t
 ctypedef np.uint8_t UINT8_t
 
+@benchmark("apply_color_parallel")
 def apply_color_parallel(np.ndarray[DTYPE_t, ndim=3] pixel_buffer,
                          np.ndarray[np.int32_t, ndim=1] masked_indices,
                          np.ndarray[DTYPE_t, ndim=1] glow_masked,
@@ -53,6 +55,7 @@ def apply_color_parallel(np.ndarray[DTYPE_t, ndim=3] pixel_buffer,
 
     return pixel_buffer
 
+@benchmark("apply_spectrogram_color")
 def apply_spectrogram_color(np.ndarray[DTYPE_t, ndim=3] spectrogram_data,
                            np.ndarray[DTYPE_t, ndim=1] color_float,
                            float intensity_scale=1.0):

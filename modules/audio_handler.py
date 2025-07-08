@@ -128,6 +128,7 @@ class AudioProcessor:
             logger.error(f"Error creating audio stream: {e}")
             return DummyStream(self.chunk_size)
 
+    @benchmark("calculate_fft")
     def calculate_fft(self, audio_data, normalize=True, apply_window=True):
         """
         Centralized FFT calculation method with consistent preprocessing

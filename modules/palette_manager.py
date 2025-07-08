@@ -10,6 +10,7 @@ import os
 from typing import List, Tuple, Dict, Optional
 from random import choice, choices
 from dataclasses import dataclass
+from modules.benchmark import benchmark
 
 
 @dataclass
@@ -131,6 +132,7 @@ class PaletteManager:
         """Get all available palettes"""
         return list(self.palettes.values())
 
+    @benchmark("get_mood_palette")
     def get_mood_palette(self, mood: Dict[str, float]) -> List[Tuple[int, int, int]]:
         """Get a palette based on mood analysis (maintains original logic)"""
         # Convert all palettes to the original format for mood selection

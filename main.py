@@ -488,6 +488,11 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                         log_debug(f"Queue size: {status.get('_queue_size', '0')}")
                         log_debug(f"Active compilations: {status.get('_active_compilations', '0')}")
                         log_debug("=" * 50)
+                    
+                    elif event.key == pygame.K_b:  # B - Show benchmark report
+                        from modules.benchmark import print_bottleneck_report, get_benchmark_coverage_report
+                        print("\n" + get_benchmark_coverage_report())
+                        print_bottleneck_report(threshold_ms=2.0)  # Lower threshold for more detailed analysis
 
                 # Pass event to config menu if visible
                 if config_menu.visible and config_menu.handle_event(event):

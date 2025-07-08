@@ -612,7 +612,7 @@ class KarmaVisualizer:
             logger.error(f"Error initializing GPU waveform system: {e}")
             raise RuntimeError("GPU waveform system initialization failed")
 
-    #   @benchmark("update_gpu_waveform")
+    @benchmark("update_gpu_waveform")
     def update_gpu_waveform(self, audio_data):
         """Update GPU waveform texture with new audio data"""
         # Recreate textures if they were released during window resize
@@ -1055,7 +1055,7 @@ class KarmaVisualizer:
             self.target_palette = new_palette
             self.palette_transition_progress = 0.0
 
-    # @benchmark("draw_waveform")
+    @benchmark("draw_waveform")
     def draw_waveform(self, color):
         audio_data = self.audio_processor.get_audio_data()
 
@@ -1235,7 +1235,7 @@ class KarmaVisualizer:
         self.update_gpu_waveform(audio_data.raw_data)
         # The actual rendering will happen in the main render() method
 
-    # @benchmark("render")
+    @benchmark("render")
     def render(self):
         try:
             # Process any completed shader compilations
@@ -1539,6 +1539,7 @@ class KarmaVisualizer:
 
         except Exception:
             raise
+    @benchmark("update_viewport")
     def update_viewport(self, new_size):
         global WIDTH, HEIGHT
 
@@ -2013,7 +2014,7 @@ class KarmaVisualizer:
         """Toggle the spectrogram overlay on/off"""
         self.show_spectrogram_overlay = not self.show_spectrogram_overlay
 
-    # @benchmark("update_spectrogram_data")
+    @benchmark("update_spectrogram_data")
     def update_spectrogram_data(self, audio_data):
         """Update spectrogram data from audio buffer with logarithmic frequency mapping and smoothing"""
         if not self.show_spectrogram_overlay:
