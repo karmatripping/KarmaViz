@@ -634,7 +634,7 @@ File: {os.path.basename(filepath)}"""
             current_item = self.preset_list.currentItem()
             filepath, preset_info = current_item.data(Qt.UserRole)
             
-            success = self.preset_manager.delete_preset(filepath)
+            success = self.preset_manager.delete_preset(preset_info.name)
             if success:
                 self.refresh_preset_list()
                 QMessageBox.information(self, "Preset Deleted", f"Preset '{preset_info.name}' deleted.")
