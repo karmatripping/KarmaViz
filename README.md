@@ -72,7 +72,6 @@ python3 -m venv karmaviz-env
 # Activate virtual environment
 source karmaviz-env/bin/activate
 ```
-
 **Step 2: Install Dependencies**
 ```bash
 # Upgrade pip to latest version
@@ -84,7 +83,6 @@ pip install -r requirements.txt
 # Install Cython for performance optimizations
 pip install Cython
 ```
-
 **Step 3: Build Cython Extensions**
 ```bash
 # Build optimized Cython extensions for better performance
@@ -93,7 +91,6 @@ python setup.py build_ext --inplace
 # Verify Cython compilation
 python -c "import modules.color_ops; print('Cython extensions loaded successfully!')"
 ```
-
 **Step 4: Run KarmaViz**
 ```bash
 # Launch KarmaViz
@@ -102,9 +99,7 @@ python main.py
 # For debug mode with verbose logging
 python main.py --debug
 ```
-
 ### Method 2: Direct pip Installation
-
 ```bash
 # Clone the repository
 git clone https://github.com/karmatripping/karmaviz
@@ -122,9 +117,7 @@ python setup.py build_ext --inplace
 # Run KarmaViz
 python main.py
 ```
-
 ### Method 3: Quick Install (No Virtual Environment)
-
 ```bash
 # Clone the repository
 git clone https://github.com/KarmaTripping/karmaviz.git
@@ -139,7 +132,6 @@ python setup.py build_ext --inplace
 # Run KarmaViz
 python main.py
 ```
-
 ### Dependencies
 
 **Core Requirements:**
@@ -167,7 +159,6 @@ pip uninstall Cython
 pip install Cython
 python setup.py build_ext --inplace
 ```
-
 **Audio dependencies missing:**
 ```bash
 # Ubuntu/Debian
@@ -179,7 +170,6 @@ sudo pacman -S portaudio alsa-lib pulseaudio
 # Fedora
 sudo dnf install portaudio-devel alsa-lib-devel pulseaudio-libs-devel
 ```
-
 **Qt5 installation issues:**
 ```bash
 # If PyQt5 installation fails, try system package
@@ -190,7 +180,6 @@ sudo dnf install python3-qt5                            # Fedora
 # Or install via pip with specific version
 pip install PyQt5==5.15.7
 ```
-
 **Virtual environment activation:**
 ```bash
 # If activation fails, ensure venv module is installed
@@ -199,7 +188,6 @@ sudo apt install python3-venv  # Ubuntu/Debian
 # Create virtual environment with specific Python version
 python3.9 -m venv karmaviz-env  # Use specific Python version
 ```
-
 ### System-Specific Setup
 
 **Ubuntu/Debian:**
@@ -225,7 +213,6 @@ pip install --upgrade pip
 pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
-
 **Arch Linux:**
 ```bash
 # Install system dependencies
@@ -242,7 +229,6 @@ pip install --upgrade pip
 pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
-
 **Fedora/RHEL/CentOS:**
 ```bash
 # Install system dependencies
@@ -263,8 +249,6 @@ pip install --upgrade pip
 pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
-
-
 ---
 
 ## 🎵 System Audio Setup
@@ -277,7 +261,6 @@ Run the audio setup helper:
 ```bash
 python setup_system_audio.py
 ```
-
 ### Manual Setup (PulseAudio)
 
 **Option 1: Enable Monitor Sources**
@@ -295,7 +278,6 @@ pactl load-module module-loopback latency_msec=1
 # List available sources
 pactl list sources short
 ```
-
 **Option 3: Using ALSA Loopback**
 ```bash
 # Load ALSA loopback module
@@ -304,7 +286,6 @@ sudo modprobe snd-aloop
 # Configure ALSA to use loopback
 echo "pcm.!default { type plug slave.pcm \"hw:Loopback,0,0\" }" >> ~/.asoundrc
 ```
-
 ### Troubleshooting Audio Issues
 
 **No audio devices detected:**
@@ -334,7 +315,6 @@ Run the audio setup helper:
 ```bash
 python setup_system_audio.py
 ```
-
 ### Manual Setup (PulseAudio)
 
 **Option 1: Enable Monitor Sources**
@@ -352,7 +332,6 @@ pactl load-module module-loopback latency_msec=1
 # List available sources
 pactl list sources short
 ```
-
 **Option 3: Using ALSA Loopback**
 ```bash
 # Load ALSA loopback module
@@ -361,7 +340,6 @@ sudo modprobe snd-aloop
 # Configure ALSA to use loopback
 echo "pcm.!default { type plug slave.pcm \"hw:Loopback,0,0\" }" >> ~/.asoundrc
 ```
-
 ### Troubleshooting Audio Issues
 
 **No audio devices detected:**
@@ -589,7 +567,6 @@ python -c "import sounddevice; print(sounddevice.query_devices())"
 # Install additional audio libraries if needed
 sudo apt install pulseaudio-dev portaudio19-dev
 ```
-
 **OpenGL errors:**
 ```bash
 # Update graphics drivers
@@ -597,7 +574,6 @@ sudo apt install pulseaudio-dev portaudio19-dev
 sudo apt install mesa-utils
 glxinfo | grep "OpenGL version"
 ```
-
 **Performance issues:**
 - Lower FPS limit in settings
 - Disable anti-aliasing
@@ -614,6 +590,200 @@ glxinfo | grep "OpenGL version"
 ## 🤝 Contributing
 
 KarmaViz welcomes contributions! Here's how you can help:
+
+### 🎨 **Create Content**
+- Design new waveforms (GLSL)
+- Create warp map effects
+- Develop color palettes
+- Share preset configurations
+
+### 🐛 **Report Issues**
+- Bug reports with system information
+- Performance optimization suggestions
+- Feature requests and ideas
+- Documentation improvements
+
+### 💻 **Code Contributions**
+- Performance optimizations
+- New visual effects
+- Audio processing improvements
+- Cross-platform compatibility
+
+**Development Setup:**
+```bash
+git clone https://github.com/yourusername/karmaviz.git
+cd karmaviz
+pip install -e .
+python -m pytest tests/  # Run tests
+```
+
+---
+
+## 📄 License
+
+KarmaViz is licensed for **Personal Use Only**. 
+
+### ✅ **Permitted Uses**
+- Personal entertainment and visualization
+- Educational purposes and learning
+- Personal creative projects
+- Private demonstrations
+
+### ❌ **Prohibited Uses**
+- Commercial performances or events
+- Public performances or exhibitions
+- Distribution of modified versions
+- Any revenue-generating activities
+
+For commercial licensing, please contact: **karma@karmaviz.biz**
+
+See [LICENSE.md](LICENSE.md) for complete terms.
+
+---
+
+## ☕ Support the Project
+
+**KarmaViz represents hundreds of hours of passionate development work!** 
+
+This project features:
+- 🎨 **100+ hand-crafted waveforms** with mathematical precision
+- 🗺️ **50+ custom warp maps** for stunning 3D effects  
+- 🎵 **Advanced audio processing** with real-time beat detection
+- 🛠️ **Professional editing tools** with live preview capabilities
+- ⚡ **GPU-optimized rendering** for smooth 60+ FPS performance
+- 🎮 **Intuitive controls** with comprehensive keyboard shortcuts
+- 🎨 **30+ color palettes** designed by a visual artist
+- 📝 **Live shader compilation** with error reporting
+- 💾 **Complete preset system** for saving your creations
+
+### 🙏 **Show Your Appreciation**
+
+If KarmaViz has enhanced your music experience or inspired your creativity, consider supporting its continued development:
+
+<div align="center">
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support%20KarmaViz-orange?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/karmaviz)
+
+**[☕ Buy me a coffee](https://buymeacoffee.com/karmaviz)**
+
+</div>
+
+Your support helps:
+- 🚀 **Accelerate development** of new features
+- 🎨 **Create more visual content** (waveforms, effects, palettes)
+- 🐛 **Maintain and improve** existing functionality  
+- 📚 **Expand documentation** and tutorials
+- 🌍 **Support the open-source community**
+
+### 💝 **Other Ways to Support**
+- ⭐ **Star this repository** to show your appreciation
+- 🐛 **Report bugs** and suggest improvements
+- 🎨 **Share your creations** and presets with the community
+- 📢 **Spread the word** about KarmaViz to fellow music lovers
+- 💻 **Contribute code** or documentation improvements
+
+---
+
+## 🌟 Acknowledgments
+
+**Special thanks to:**
+- The **ModernGL** community for excellent OpenGL bindings
+- **PyQt5** developers for the robust GUI framework
+- **NumPy/SciPy** teams for powerful numerical computing
+- **Pygame** community for multimedia support
+- All **beta testers** and **contributors** who helped shape KarmaViz
+
+---
+
+## 📞 Contact
+
+- **🐛 Issues & Bugs**: [GitHub Issues](https://github.com/KarmaTripping/KarmaViz/issues)
+all -e .
+python -m pytest tests/  # Run tests
+```
+
+---
+
+## 📄 License
+
+KarmaViz is licensed for **Personal Use Only**. 
+
+### ✅ **Permitted Uses**
+- Personal entertainment and visualization
+- Educational purposes and learning
+- Personal creative projects
+- Private demonstrations
+
+### ❌ **Prohibited Uses**
+- Commercial performances or events
+- Public performances or exhibitions
+- Distribution of modified versions
+- Any revenue-generating activities
+
+For commercial licensing, please contact: **karma@karmaviz.biz**
+
+See [LICENSE.md](LICENSE.md) for complete terms.
+
+---
+
+## ☕ Support the Project
+
+**KarmaViz represents hundreds of hours of passionate development work!** 
+
+This project features:
+- 🎨 **100+ hand-crafted waveforms** with mathematical precision
+- 🗺️ **50+ custom warp maps** for stunning 3D effects  
+- 🎵 **Advanced audio processing** with real-time beat detection
+- 🛠️ **Professional editing tools** with live preview capabilities
+- ⚡ **GPU-optimized rendering** for smooth 60+ FPS performance
+- 🎮 **Intuitive controls** with comprehensive keyboard shortcuts
+- 🎨 **30+ color palettes** designed by a visual artist
+- 📝 **Live shader compilation** with error reporting
+- 💾 **Complete preset system** for saving your creations
+
+### 🙏 **Show Your Appreciation**
+
+If KarmaViz has enhanced your music experience or inspired your creativity, consider supporting its continued development:
+
+<div align="center">
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support%20KarmaViz-orange?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white)](https://buymeacoffee.com/karmaviz)
+
+**[☕ Buy me a coffee](https://buymeacoffee.com/karmaviz)**
+
+</div>
+
+Your support helps:
+- 🚀 **Accelerate development** of new features
+- 🎨 **Create more visual content** (waveforms, effects, palettes)
+- 🐛 **Maintain and improve** existing functionality  
+- 📚 **Expand documentation** and tutorials
+- 🌍 **Support the open-source community**
+
+### 💝 **Other Ways to Support**
+- ⭐ **Star this repository** to show your appreciation
+- 🐛 **Report bugs** and suggest improvements
+- 🎨 **Share your creations** and presets with the community
+- 📢 **Spread the word** about KarmaViz to fellow music lovers
+- 💻 **Contribute code** or documentation improvements
+
+---
+
+## 🌟 Acknowledgments
+
+**Special thanks to:**
+- The **ModernGL** community for excellent OpenGL bindings
+- **PyQt5** developers for the robust GUI framework
+- **NumPy/SciPy** teams for powerful numerical computing
+- **Pygame** community for multimedia support
+- All **beta testers** and **contributors** who helped shape KarmaViz
+
+---
+
+## 📞 Contact
+
+- **🐛 Issues & Bugs**: [GitHub Issues](https://github.com/KarmaTripping/KarmaViz/issues)
+ welcomes contributions! Here's how you can help:
 
 ### 🎨 **Create Content**
 - Design new waveforms (GLSL)
