@@ -63,7 +63,7 @@
 **Step 1: Clone and Setup Virtual Environment**
 ```bash
 # Clone the repository
-git clone https://github.com/KarmaSwint/karmaviz.git
+git clone https://github.com/KarmaTripping/karmaviz.git
 cd karmaviz
 
 # Create virtual environment
@@ -127,7 +127,7 @@ python main.py
 
 ```bash
 # Clone the repository
-git clone https://github.com/KarmaSwint/karmaviz.git
+git clone https://github.com/KarmaTripping/karmaviz.git
 cd karmaviz
 
 # Install dependencies directly
@@ -234,7 +234,7 @@ sudo pacman -S portaudio mesa base-devel
 sudo pacman -S python-pyqt5
 
 # Clone and setup KarmaViz
-git clone https://github.com/KarmaSwint/karmaviz.git
+git clone https://github.com/KarmaTripping/karmaviz.git
 cd karmaviz
 python -m venv karmaviz-env
 source karmaviz-env/bin/activate
@@ -255,7 +255,7 @@ sudo dnf install gcc gcc-c++ make
 sudo dnf install python3-qt5
 
 # Clone and setup KarmaViz
-git clone https://github.com/KarmaSwint/karmaviz.git
+git clone https://github.com/KarmaTripping/karmaviz.git
 cd karmaviz
 python3 -m venv karmaviz-env
 source karmaviz-env/bin/activate
@@ -263,6 +263,122 @@ pip install --upgrade pip
 pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
+
+
+---
+
+## 🎵 System Audio Setup
+
+KarmaViz can capture audio from your microphone by default, but to visualize system audio (music, videos, etc.), you need to set up audio loopback.
+
+### Quick Setup
+
+Run the audio setup helper:
+```bash
+python setup_system_audio.py
+```
+
+### Manual Setup (PulseAudio)
+
+**Option 1: Enable Monitor Sources**
+1. Install `pavucontrol`: `sudo apt install pavucontrol`
+2. Open PulseAudio Volume Control
+3. Go to "Recording" tab
+4. Show "Monitor" sources from the dropdown
+5. Set KarmaViz to record from your output device's monitor
+
+**Option 2: Create Loopback**
+```bash
+# Create a loopback device
+pactl load-module module-loopback latency_msec=1
+
+# List available sources
+pactl list sources short
+```
+
+**Option 3: Using ALSA Loopback**
+```bash
+# Load ALSA loopback module
+sudo modprobe snd-aloop
+
+# Configure ALSA to use loopback
+echo "pcm.!default { type plug slave.pcm \"hw:Loopback,0,0\" }" >> ~/.asoundrc
+```
+
+### Troubleshooting Audio Issues
+
+**No audio devices detected:**
+- Check if PulseAudio is running: `pulseaudio --check -v`
+- Restart PulseAudio: `pulseaudio -k && pulseaudio --start`
+- Install audio development packages: `sudo apt install pulseaudio-dev portaudio19-dev`
+
+**Audio capture not working:**
+- Verify device permissions: Add user to `audio` group
+- Check device availability: `python -c "import sounddevice; print(sounddevice.query_devices())"`
+- Try different audio devices from the list shown at startup
+
+**Taskbar icon not showing:**
+- Ensure proper desktop environment integration
+- Try running with: `SDL_VIDEO_X11_WMCLASS=KarmaViz python main.py`
+- Check if window manager supports system tray icons
+
+---
+
+## 🎵 System Audio Setup
+
+KarmaViz can capture audio from your microphone by default, but to visualize system audio (music, videos, etc.), you need to set up audio loopback.
+
+### Quick Setup
+
+Run the audio setup helper:
+```bash
+python setup_system_audio.py
+```
+
+### Manual Setup (PulseAudio)
+
+**Option 1: Enable Monitor Sources**
+1. Install `pavucontrol`: `sudo apt install pavucontrol`
+2. Open PulseAudio Volume Control
+3. Go to "Recording" tab
+4. Show "Monitor" sources from the dropdown
+5. Set KarmaViz to record from your output device's monitor
+
+**Option 2: Create Loopback**
+```bash
+# Create a loopback device
+pactl load-module module-loopback latency_msec=1
+
+# List available sources
+pactl list sources short
+```
+
+**Option 3: Using ALSA Loopback**
+```bash
+# Load ALSA loopback module
+sudo modprobe snd-aloop
+
+# Configure ALSA to use loopback
+echo "pcm.!default { type plug slave.pcm \"hw:Loopback,0,0\" }" >> ~/.asoundrc
+```
+
+### Troubleshooting Audio Issues
+
+**No audio devices detected:**
+- Check if PulseAudio is running: `pulseaudio --check -v`
+- Restart PulseAudio: `pulseaudio -k && pulseaudio --start`
+- Install audio development packages: `sudo apt install pulseaudio-dev portaudio19-dev`
+
+**Audio capture not working:**
+- Verify device permissions: Add user to `audio` group
+- Check device availability: `python -c "import sounddevice; print(sounddevice.query_devices())"`
+- Try different audio devices from the list shown at startup
+
+**Taskbar icon not showing:**
+- Ensure proper desktop environment integration
+- Try running with: `SDL_VIDEO_X11_WMCLASS=KarmaViz python main.py`
+- Check if window manager supports system tray icons
+
 ---
 
 ## ⌨️ Keyboard Shortcuts
@@ -605,7 +721,7 @@ Your support helps:
 
 ## 📞 Contact
 
-- **🐛 Issues & Bugs**: [GitHub Issues](https://github.com/KarmaSwint/KarmaViz/issues)
+- **🐛 Issues & Bugs**: [GitHub Issues](https://github.com/KarmaTripping/KarmaViz/issues)
 - **💼 Commercial Licensing**: karma@karmaviz.biz
 - **☕ Support Development**: [Buy Me A Coffee](https://buymeacoffee.com/karmaviz)
 - **💬 Feedback** and Suggestions: karma@karmaviz.biz
