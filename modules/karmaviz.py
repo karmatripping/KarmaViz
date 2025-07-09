@@ -2200,7 +2200,7 @@ class KarmaVisualizer:
     def toggle_warp_first(self):
         """Toggle the order of warp and symmetry application."""
         self.warp_first_enabled = not self.warp_first_enabled
-        logger.debug("Warp First Mode: {'Enabled' if self.warp_first_enabled else 'Disabled'}")
+        logger.debug(f"Warp First Mode: {'Enabled' if self.warp_first_enabled else 'Disabled'}")
 
     def toggle_bounce(self):
         """Toggle the bounce effect on/off"""

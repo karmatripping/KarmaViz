@@ -337,6 +337,9 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                     elif event.key == pygame.K_m:
                         vis.cycle_symmetry_mode()
                         update_config_menu_setting("symmetry_mode", vis.symmetry_mode)
+                    elif event.key == pygame.K_l:
+                        vis.toggle_warp_first()
+                        update_config_menu_setting("warp_first", vis.warp_first_enabled)
 
                     # Intensity Controls
                     elif event.key == pygame.K_LEFTBRACKET:

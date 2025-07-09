@@ -74,6 +74,7 @@ karmaviz = "main:main"
 
 [tool.setuptools]
 packages = ["modules", "config", "shaders"]
+py-modules = ["main"]
 include-package-data = true
 
 
