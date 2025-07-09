@@ -1073,11 +1073,14 @@ def main():
                     if hasattr(audio_processor, "set_beat_sensitivity")
                     else None
                 ),
-                "chunk_size": lambda v: (
+                "chunk_size": lambda v: [
                     audio_processor.set_chunk_size(v)
                     if hasattr(audio_processor, "set_chunk_size")
+                    else None,
+                    vis.update_chunk_size(v)
+                    if hasattr(vis, "update_chunk_size")
                     else None
-                ),
+                ],
                 "sample_rate": lambda v: (
                     audio_processor.set_sample_rate(v)
                     if hasattr(audio_processor, "set_sample_rate")

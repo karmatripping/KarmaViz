@@ -1,9 +1,9 @@
 import numpy as np 
 
-CHUNK = 151  
+CHUNK = 1024  
 DATA_FORMAT = np.float32
 CHANNELS = 1  # Mono audio for single centered waveform
-RATE = 80000
+RATE = 44100    
 
 WIDTH, HEIGHT = 1024, 576
 CROSSFADE_SECS = 1.0

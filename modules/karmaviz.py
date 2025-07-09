@@ -593,7 +593,7 @@ class KarmaVisualizer:
             logger.debug(f"🔍 GPU Waveform Init - Audio chunk size: {actual_chunk_size}")
             
             # Use actual chunk size or minimum of 1024 for GPU efficiency
-            waveform_samples = max(1024, actual_chunk_size)
+            waveform_samples = max(128, actual_chunk_size)
             logger.debug(f"🔍 GPU Waveform Init - Using waveform_samples: {waveform_samples}")
             
             self.waveform_buffer = np.zeros(waveform_samples, dtype=DATA_FORMAT)
@@ -632,8 +632,17 @@ class KarmaVisualizer:
             try:
                 logger.debug("Recreating GPU waveform textures after resize...")
 
-                # Create 1D texture for waveform data (using 1024 samples for higher resolution)
-                waveform_samples = 1024
+                # Get actual chunk size from audio processor
+                actual_chunk_size = (
+                    self.audio_processor.get_chunk_size()
+                    if hasattr(self.audio_processor, "get_chunk_size")
+                    else CHUNK
+                )
+                
+                # Use actual chunk size or minimum of 128 for GPU efficiency
+                waveform_samples = max(128, actual_chunk_size)
+                logger.debug(f"🔍 GPU Waveform Recreate - Using waveform_samples: {waveform_samples}")
+                
                 self.waveform_buffer = np.zeros(waveform_samples, dtype=DATA_FORMAT)
 
                 # Create 1D texture using 2D texture with height=1 (ModernGL doesn't support true 1D textures)
@@ -679,9 +688,12 @@ class KarmaVisualizer:
             # Optimized resampling using vectorized operations
             if len(mono_data) != len(self.waveform_buffer):
                 # Use more efficient resampling with pre-computed indices
-                if not hasattr(self, '_resample_indices') or len(self._resample_indices) != len(self.waveform_buffer):
+                # Cache indices based on both input and output lengths to handle chunk size changes
+                cache_key = (len(mono_data), len(self.waveform_buffer))
+                if not hasattr(self, '_resample_cache_key') or self._resample_cache_key != cache_key:
                     self._resample_indices = np.linspace(0, len(mono_data) - 1, len(self.waveform_buffer), dtype=np.int32)
                     self._resample_weights = self._resample_indices - self._resample_indices.astype(np.int32)
+                    self._resample_cache_key = cache_key
 
                 # Fast linear interpolation using pre-computed indices
                 idx_floor = self._resample_indices.astype(np.int32)
@@ -717,9 +729,12 @@ class KarmaVisualizer:
                 # Optimized FFT resampling
                 if len(fft_data) != len(self.fft_buffer):
                     # Use more efficient resampling for FFT data
-                    if not hasattr(self, '_fft_resample_indices') or len(self._fft_resample_indices) != len(self.fft_buffer):
+                    # Cache indices based on both input and output lengths to handle chunk size changes
+                    fft_cache_key = (len(fft_data), len(self.fft_buffer))
+                    if not hasattr(self, '_fft_resample_cache_key') or self._fft_resample_cache_key != fft_cache_key:
                         self._fft_resample_indices = np.linspace(0, len(fft_data) - 1, len(self.fft_buffer), dtype=np.int32)
                         self._fft_resample_weights = self._fft_resample_indices - self._fft_resample_indices.astype(np.int32)
+                        self._fft_resample_cache_key = fft_cache_key
 
                     idx_floor = self._fft_resample_indices.astype(np.int32)
                     idx_ceil = np.clip(idx_floor + 1, 0, len(fft_data) - 1)
@@ -2371,9 +2386,9 @@ class KarmaVisualizer:
                     if not self.logo_visible:
                         self.logo_visible = True
                         if self.logo_test_mode:
-                            logger.debug("🧪 Test mode - showing logo")
+                            logger.debug("Test mode - showing logo")
                         else:
-                            logger.debug("🔇 Silence detected ({self.current_amplitude:.4f} < {self.silence_threshold:.4f}) - fading in logo")
+                            logger.debug(f"Silence detected ({self.current_amplitude:.4f} < {self.silence_threshold:.4f}) - fading in logo")
 
                     # Increase logo alpha (fade in)
                     target_alpha = 1.0
@@ -2457,6 +2472,31 @@ class KarmaVisualizer:
         ):
             self.load_logo_texture()
             logger.debug("Logo texture reloaded with new anti-aliasing settings")
+
+    def update_chunk_size(self, new_chunk_size):
+        """Update audio chunk size and reinitialize GPU waveform system"""
+        if hasattr(self.audio_processor, 'get_chunk_size') and self.audio_processor.get_chunk_size() == new_chunk_size:
+            return  # No change needed
+            
+        logger.debug(f"Updating chunk size to: {new_chunk_size}")
+        
+        # Clear cached resampling indices since chunk size is changing
+        if hasattr(self, '_resample_cache_key'):
+            delattr(self, '_resample_cache_key')
+        if hasattr(self, '_fft_resample_cache_key'):
+            delattr(self, '_fft_resample_cache_key')
+            
+        # Release existing GPU waveform textures
+        if hasattr(self, "waveform_texture") and self.waveform_texture is not None:
+            self.waveform_texture.release()
+            self.waveform_texture = None
+        if hasattr(self, "fft_texture") and self.fft_texture is not None:
+            self.fft_texture.release()
+            self.fft_texture = None
+            
+        # The audio processor chunk size will be updated by the callback in main.py
+        # The GPU waveform textures will be recreated on the next update_gpu_waveform call
+        logger.debug(f"GPU waveform textures cleared for chunk size change to {new_chunk_size}")
 
     def calculate_logo_pulse(self, current_time):
         """Calculate smooth pulse scale with slow in and out breathing effect"""
