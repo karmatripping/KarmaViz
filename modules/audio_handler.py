@@ -181,8 +181,45 @@ class AudioProcessor:
             logger.error(f"Error creating audio stream: {e}")
             return DummyStream(self.chunk_size)
 
+    def apply_logarithmic_scaling(self, fft_data: np.ndarray, min_db: float = -60.0) -> np.ndarray:
+        """
+        Apply logarithmic scaling to FFT data to match human hearing perception
+        
+        Args:
+            fft_data: Linear magnitude spectrum from FFT
+            min_db: Minimum dB level to clamp to (default: -60.0)
+            
+        Returns:
+            np.ndarray: Logarithmically scaled FFT data normalized to [0, 1]
+        """
+        try:
+            # Avoid log(0) by adding small epsilon
+            epsilon = 1e-10
+            fft_data_safe = np.maximum(fft_data, epsilon)
+            
+            # Convert to dB scale (20 * log10 for magnitude)
+            fft_db = 20.0 * np.log10(fft_data_safe)
+            
+            # Clamp to minimum dB level
+            fft_db = np.maximum(fft_db, min_db)
+            
+            # Normalize to [0, 1] range
+            # Assuming maximum possible dB is 0 (when magnitude = 1.0)
+            max_db = 0.0
+            fft_normalized = (fft_db - min_db) / (max_db - min_db)
+            
+            # Ensure values are in [0, 1] range
+            fft_normalized = np.clip(fft_normalized, 0.0, 1.0)
+            
+            return fft_normalized
+            
+        except Exception as e:
+            logger.error(f"Error in logarithmic scaling: {e}")
+            # Return original data as fallback
+            return fft_data
+
     @benchmark("calculate_fft")
-    def calculate_fft(self, audio_data, normalize=True, apply_window=True):
+    def calculate_fft(self, audio_data, normalize=True, apply_window=True, logarithmic=True):
         """
         Centralized FFT calculation method with consistent preprocessing
         
@@ -190,6 +227,7 @@ class AudioProcessor:
             audio_data: Input audio data as numpy array
             normalize: Whether to normalize the FFT output (default: True)
             apply_window: Whether to apply windowing function (default: True)
+            logarithmic: Whether to apply logarithmic scaling for human hearing (default: True)
             
         Returns:
             tuple: (fft_data, frequencies) where fft_data is the magnitude spectrum
@@ -233,8 +271,11 @@ class AudioProcessor:
             fft_data = np.nan_to_num(fft_data, nan=0.0, posinf=0.0, neginf=0.0)
             np.clip(fft_data, 0, None, out=fft_data)  # Ensure non-negative
 
-            # Normalize if requested
-            if normalize and np.max(fft_data) > 0:
+            # Apply logarithmic scaling for human hearing perception
+            if logarithmic:
+                fft_data = self.apply_logarithmic_scaling(fft_data)
+            elif normalize and np.max(fft_data) > 0:
+                # Only apply linear normalization if not using logarithmic scaling
                 fft_data = fft_data / np.max(fft_data)
 
             # Calculate frequency bins
@@ -344,8 +385,8 @@ class AudioProcessor:
                     warmth=0.0,
                 )
 
-            # Use centralized FFT calculation - this handles all preprocessing
-            fft_data, freqs = self.calculate_fft(audio_data, normalize=False, apply_window=True)
+            # Use centralized FFT calculation - this handles all preprocessing with logarithmic scaling
+            fft_data, freqs = self.calculate_fft(audio_data, normalize=False, apply_window=True, logarithmic=True)
 
             # Get the preprocessed audio data from the FFT calculation
             # We need to redo the preprocessing here to get the cleaned audio_data
@@ -808,7 +849,7 @@ class DummyAudioProcessor:
     def set_sample_rate(self, value):
         pass
 
-    def calculate_fft(self, audio_data, normalize=True, apply_window=True):
+    def calculate_fft(self, audio_data, normalize=True, apply_window=True, logarithmic=True):
         """Dummy FFT calculation that returns empty data"""
         import numpy as np
 

@@ -663,12 +663,15 @@ class KarmaVisualizer:
                 return
 
         try:
+            # Extract raw audio data from AudioData object
+            raw_audio = audio_data.raw_data
+            
             # Process audio data for GPU upload - optimized for performance
-            if len(audio_data.shape) > 1:
+            if len(raw_audio.shape) > 1:
                 # Use left channel for mono waveform
-                mono_data = audio_data[:, 0]
+                mono_data = raw_audio[:, 0]
             else:
-                mono_data = audio_data
+                mono_data = raw_audio
 
             # Ensure data is in the correct dtype for processing
             mono_data = np.asarray(mono_data, dtype=DATA_FORMAT)
@@ -706,10 +709,10 @@ class KarmaVisualizer:
                 gpu_buffer = self.waveform_buffer
             self.waveform_texture.write(gpu_buffer.tobytes())
 
-            # Compute and upload FFT data for lightning waveform
+            # Upload pre-calculated FFT data for lightning waveform
             if hasattr(self, "fft_texture") and self.fft_texture is not None:
-                # Use centralized FFT calculation from audio processor
-                fft_data, _ = self.audio_processor.calculate_fft(mono_data, normalize=False, apply_window=True)
+                # Use pre-calculated FFT data from AudioData object (already logarithmically scaled)
+                fft_data = audio_data.fft_data
 
                 # Optimized FFT resampling
                 if len(fft_data) != len(self.fft_buffer):
@@ -727,12 +730,9 @@ class KarmaVisualizer:
                 else:
                     resampled_fft = fft_data
 
-                # Optimized FFT normalization
-                max_fft = np.max(resampled_fft)
-                if max_fft > 0:
-                    np.divide(resampled_fft, max_fft, out=self.fft_buffer)
-                else:
-                    self.fft_buffer.fill(0.0)
+                # FFT data is already logarithmically scaled and normalized from AudioData
+                # Just copy to buffer without additional normalization
+                np.copyto(self.fft_buffer, resampled_fft)
 
                 # Upload FFT data to GPU texture (avoid unnecessary copy)
                 if self.fft_buffer.dtype != np.float32:
@@ -1244,7 +1244,7 @@ class KarmaVisualizer:
 
         # --- GPU Waveform Setup (integrated with main shader) ---
         # Update GPU waveform data
-        self.update_gpu_waveform(audio_data.raw_data)
+        self.update_gpu_waveform(audio_data)
         # The actual rendering will happen in the main render() method
 
     @benchmark("render")
