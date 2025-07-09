@@ -18,6 +18,56 @@ import numpy as np
 logger = get_logger('audio_handler')
 
 
+def list_audio_devices():
+    """List available audio input devices"""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        input_devices = []
+        for i, device in enumerate(devices):
+            if device['max_input_channels'] > 0:
+                input_devices.append({
+                    'id': i,
+                    'name': device['name'],
+                    'channels': device['max_input_channels'],
+                    'sample_rate': device['default_samplerate']
+                })
+        return input_devices
+    except Exception as e:
+        logger.error(f"Error listing audio devices: {e}")
+        return []
+
+
+def list_audio_devices():
+    """List available audio input devices"""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        input_devices = []
+        for i, device in enumerate(devices):
+            if device['max_input_channels'] > 0:
+                input_devices.append({
+                    'id': i,
+                    'name': device['name'],
+                    'channels': device['max_input_channels'],
+                    'sample_rate': device['default_samplerate']
+                })
+        return input_devices
+    except Exception as e:
+        logger.error(f"Error listing audio devices: {e}")
+        return []
+
+
+def get_default_audio_device():
+    """Get the default audio input device"""
+    try:
+        import sounddevice as sd
+        return sd.default.device[0]
+    except Exception as e:
+        logger.error(f"Error getting default audio device: {e}")
+        return None
+
+
 @dataclass
 class AudioData:
     """Data class for thread communication of processed audio data"""
@@ -65,11 +115,13 @@ class AudioProcessor:
         sample_rate=RATE,
         channels=CHANNELS,
         data_format=DATA_FORMAT,
+        device=None,
     ):
         self.chunk_size = chunk_size
         self.sample_rate = sample_rate
         self.channels = channels
         self.data_format = data_format
+        self.device = device
 
         # Thread control
         self.running = False
@@ -120,6 +172,7 @@ class AudioProcessor:
                 channels=self.channels,
                 dtype=self.data_format,
                 blocksize=self.chunk_size,
+                device=self.device,
                 latency="low",
                 dither_off=True,  # Turn off dithering to reduce CPU load
             )
@@ -646,6 +699,62 @@ class AudioProcessor:
             self.start()
 
         logger.debug(f"Sample rate changed to {new_sample_rate}")
+
+    def set_device(self, new_device):
+        """Change the audio input device and restart the audio stream"""
+        if new_device == self.device:
+            return  # No change needed
+
+        logger.debug(f"Changing audio device from {self.device} to {new_device}")
+
+        # Stop current processing
+        was_running = self.running
+        if was_running:
+            self.stop()
+
+        # Update device
+        self.device = new_device
+
+        # Recreate audio stream with new device
+        try:
+            self.stream = self._create_audio_stream()
+        except Exception as e:
+            logger.error(f"Error creating audio stream with new device: {e}")
+            self.stream = DummyStream(self.chunk_size)
+
+        # Restart if it was running before
+        if was_running:
+            self.start()
+
+        logger.debug(f"Audio device changed to {new_device}")
+
+    def set_device(self, new_device):
+        """Change the audio input device and restart the audio stream"""
+        if new_device == self.device:
+            return  # No change needed
+
+        logger.debug(f"Changing audio device from {self.device} to {new_device}")
+
+        # Stop current processing
+        was_running = self.running
+        if was_running:
+            self.stop()
+
+        # Update device
+        self.device = new_device
+
+        # Recreate audio stream with new device
+        try:
+            self.stream = self._create_audio_stream()
+        except Exception as e:
+            logger.error(f"Error creating audio stream with new device: {e}")
+            self.stream = DummyStream(self.chunk_size)
+
+        # Restart if it was running before
+        if was_running:
+            self.start()
+
+        logger.debug(f"Audio device changed to {new_device}")
 
     def get_sample_rate(self):
         """Get the current sample rate"""

@@ -2,6 +2,8 @@ from setuptools import setup, Extension
 from Cython.Build import cythonize
 import numpy as np
 
+# Minimal setup.py for Cython extension with NumPy includes
+# All other project configuration is in pyproject.toml
 extensions = [
     Extension(
         "modules.color_ops",

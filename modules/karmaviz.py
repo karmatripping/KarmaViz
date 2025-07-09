@@ -582,8 +582,20 @@ class KarmaVisualizer:
     def initialize_gpu_waveform(self):
         """Initialize GPU waveform rendering system"""
         try:
-            # Create 1D texture for waveform data (using 1024 samples for higher resolution)
-            waveform_samples =1024
+            # Get actual chunk size from audio processor
+            actual_chunk_size = (
+                self.audio_processor.get_chunk_size()
+                if hasattr(self.audio_processor, "get_chunk_size")
+                else CHUNK
+            )
+            
+            # DIAGNOSTIC: Log buffer size mismatch
+            logger.debug(f"🔍 GPU Waveform Init - Audio chunk size: {actual_chunk_size}")
+            
+            # Use actual chunk size or minimum of 1024 for GPU efficiency
+            waveform_samples = max(1024, actual_chunk_size)
+            logger.debug(f"🔍 GPU Waveform Init - Using waveform_samples: {waveform_samples}")
+            
             self.waveform_buffer = np.zeros(waveform_samples, dtype=DATA_FORMAT)
 
             # Create 1D texture using 2D texture with height=1 (ModernGL doesn't support true 1D textures)

@@ -578,7 +578,7 @@ def main():
         # Initialize Pygame
         pygame.init()
 
-        # Set window icon for taskbar display
+        # Set window for taskbar display
         try:
             icon_path = os.path.join(os.path.dirname(__file__), 'karmaviz_icon.png')
             if os.path.exists(icon_path):
@@ -647,7 +647,16 @@ def main():
 
         # Start audio processor (lazy import to avoid early sounddevice issues)
         try:
-            from modules.audio_handler import AudioProcessor
+            from modules.audio_handler import AudioProcessor, list_audio_devices 
+            # List available audio devices for user information
+            devices = list_audio_devices()
+            if devices:
+                log_info("Available audio input devices:")
+                for device in devices:
+                    log_info(f"  {device['id']}: {device['name']} ({device['channels']} channels)")
+                log_info("Note: To capture system audio, you may need to set up a loopback device.")
+                log_info("See README for instructions on setting up system audio capture.")
+            
             audio_processor = AudioProcessor()
             audio_processor.start()
             log_debug("Audio processor started successfully")
@@ -662,7 +671,15 @@ def main():
             audio_processor.start()
             log_error("Dummy audio processor created - visual-only mode active")
 
-        # Set window caption now that we're transitioning to main visualization
+        # Ensure window is properly shown and focused for taskbar display
+        try:
+            if os.environ.get('DISPLAY'):
+                # Set window class name for better desktop integration
+                os.environ['SDL_VIDEO_X11_WMCLASS'] = 'KarmaViz'
+        except Exception as e:
+            log_debug(f"Could not set window class: {e}")
+
+        # Set window caption and ensure proper window properties for taskbar
         pygame.display.set_caption("KarmaViz - Audio Visualizer")
         window_size = (WIDTH, HEIGHT)
 
@@ -1064,6 +1081,16 @@ def main():
                 "sample_rate": lambda v: (
                     audio_processor.set_sample_rate(v)
                     if hasattr(audio_processor, "set_sample_rate")
+                    else None
+                ),
+                "audio_device": lambda v: (
+                    audio_processor.set_device(v)
+                    if hasattr(audio_processor, "set_device")
+                    else None
+                ),
+                "audio_device": lambda v: (
+                    audio_processor.set_device(v)
+                    if hasattr(audio_processor, "set_device")
                     else None
                 ),
                 "color_cycle_speed": lambda v: setattr(

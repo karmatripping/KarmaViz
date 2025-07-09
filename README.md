@@ -617,30 +617,6 @@ pip install -e .
 python -m pytest tests/  # Run tests
 ```
 
----
-
-## 📄 License
-
-KarmaViz is licensed for **Personal Use Only**. 
-
-### ✅ **Permitted Uses**
-- Personal entertainment and visualization
-- Educational purposes and learning
-- Personal creative projects
-- Private demonstrations
-
-### ❌ **Prohibited Uses**
-- Commercial performances or events
-- Public performances or exhibitions
-- Distribution of modified versions
-- Any revenue-generating activities
-
-For commercial licensing, please contact: **karma@karmaviz.biz**
-
-See [LICENSE.md](LICENSE.md) for complete terms.
-
----
-
 ## ☕ Support the Project
 
 **KarmaViz represents hundreds of hours of passionate development work!** 

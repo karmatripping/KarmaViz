@@ -983,6 +983,11 @@ class ConfigMenuQt:
                 if hasattr(vis, "audio_processor")
                 else 44100
             ),
+            "audio_device": (
+                getattr(vis.audio_processor, "device", None)
+                if hasattr(vis, "audio_processor")
+                else None
+            ),
             "selected_palette": getattr(
                 vis, "selected_palette_name", "Auto (Mood-based)"
             ),
@@ -1113,6 +1118,7 @@ class ConfigMenuQt:
                     "beats_per_change",
                     "beat_sensitivity",
                     "transitions_paused",
+                    "audio_device",
                     "chunk_size",
                     "sample_rate",
                 ],
@@ -1124,6 +1130,7 @@ class ConfigMenuQt:
                         "transitions_paused",
                     ],
                     "Audio Processing": [
+                        "audio_device",
                         "chunk_size",
                         "sample_rate",
                     ],
@@ -1303,6 +1310,12 @@ class ConfigMenuQt:
                 "options": [22050, 44100, 48000, 88200, 96000],
                 "option_labels": ["22.05 kHz", "44.1 kHz", "48 kHz", "88.2 kHz", "96 kHz"],
                 "label": "Sample Rate",
+            },
+            "audio_device": {
+                "type": "cycle",
+                "options": [],  # Will be populated dynamically
+                "option_labels": [],  # Will be populated dynamically
+                "label": "Audio Input Device",
             },
             "color_cycle_speed": {
                 "type": "slider",
@@ -1674,6 +1687,7 @@ class ConfigMenuQt:
             "transitions_paused": False,
             "chunk_size": 512,
             "sample_rate": 44100,
+            "audio_device": None,  # Default device
             # Palettes
             "selected_palette": "Auto (Mood-based)",
             "palette_speed": 3.0,
@@ -1684,6 +1698,35 @@ class ConfigMenuQt:
             "warp_intensity": 1.0,
             "warp_first": False,
         }
+
+    def _populate_audio_devices(self):
+        """Populate audio device options dynamically"""
+        try:
+            from modules.audio_handler import list_audio_devices
+            devices = list_audio_devices()
+            
+            # Create options and labels for audio devices
+            device_options = [None]  # None for default device
+            device_labels = ["Default"]
+            
+            for device in devices:
+                device_options.append(device['id'])
+                # Create a readable label with device name and channel info
+                label = f"{device['name']}"
+                if len(label) > 40:  # Truncate long device names
+                    label = label[:37] + "..."
+                device_labels.append(f"{device['id']}: {label}")
+            
+            # Update the setting definition
+            if "audio_device" in self.setting_info:
+                self.setting_info["audio_device"]["options"] = device_options
+                self.setting_info["audio_device"]["option_labels"] = device_labels
+                
+        except Exception as e:
+            logger.error(f"Error populating audio devices: {e}")
+            # Fallback to default only
+            self.setting_info["audio_device"]["options"] = [None]
+            self.setting_info["audio_device"]["option_labels"] = ["Default"]
 
     def load_settings(self):
         """Load settings from file"""
@@ -1741,6 +1784,10 @@ class ConfigMenuQt:
     def _create_dialog_if_needed(self):
         """Create the dialog if it doesn't exist yet"""
         if self.dialog is None:
+            # Populate audio devices before creating the dialog
+            self._populate_audio_devices()
+            # Populate audio devices before creating the dialog
+            self._populate_audio_devices()
             # Use existing QApplication
             self.app = QApplication.instance()
 
@@ -1839,9 +1886,6 @@ class ConfigMenuQt:
 
             # Connect dialog close event to update visibility
             self.dialog.finished.connect(self._on_dialog_closed)
-            
-            # Set focus policy on all child widgets to prevent focus stealing
-            self._set_no_auto_focus_on_children(self.dialog)
             
             # Override the dialog's showEvent to handle focus restoration
             original_show_event = self.dialog.showEvent
