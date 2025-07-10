@@ -141,7 +141,13 @@ class KarmaVisualizer:
         # Initialize mouse interaction state
         self.mouse_interaction_enabled = False
         self.mouse_position = [0.0, 0.0]
+        self.mouse_intensity = 1.0  # Default mouse interaction intensity
         self.resolution = [float(tex_width), float(tex_height)]
+        
+        # Initialize mouse click effects
+        self.shockwaves = []  # List of active shockwaves: [x, y, start_time, intensity]
+        self.ripples = []     # List of active ripples: [x, y, start_time, intensity]
+        self.max_effects = 5  # Maximum number of simultaneous effects
 
         # Initialize rotation angle
         self.rotation_angle = 0.0
@@ -521,6 +527,8 @@ class KarmaVisualizer:
             self.program["resolution"] = self.resolution  # type: ignore
         if "mouse_enabled" in self.program:
             self.program["mouse_enabled"] = False  # type: ignore
+        if "mouse_intensity" in self.program:
+            self.program["mouse_intensity"] = self.mouse_intensity  # type: ignore
         if "warp_first" in self.program:
             self.program["warp_first"] = self.warp_first_enabled  # type: ignore
         if "bounce_enabled" in self.program:
@@ -1270,8 +1278,14 @@ class KarmaVisualizer:
                 self._handle_program_update
             )
 
-            # Update mouse enabled state
+            # Update mouse enabled state and intensity
             self.program["mouse_enabled"] = self.mouse_interaction_enabled  # type: ignore
+            if "mouse_intensity" in self.program:
+                self.program["mouse_intensity"] = self.mouse_intensity  # type: ignore
+            
+            # Update click effects and pass to shader
+            self.update_click_effects()
+            self._update_click_effect_uniforms()
 
             current_time = time()
 
@@ -2196,6 +2210,97 @@ class KarmaVisualizer:
         """Toggle mouse interaction on/off"""
         self.mouse_interaction_enabled = not self.mouse_interaction_enabled
         self.program["mouse_enabled"] = self.mouse_interaction_enabled  # type: ignore
+        logger.debug(f"Mouse interaction: {'enabled' if self.mouse_interaction_enabled else 'disabled'}")
+
+    def increase_mouse_intensity(self):
+        """Increase the mouse interaction intensity by 0.1, with a maximum of 3.0"""
+        self.mouse_intensity = min(3.0, self.mouse_intensity + 0.1)
+        if "mouse_intensity" in self.program:
+            self.program["mouse_intensity"] = self.mouse_intensity  # type: ignore
+        logger.debug(f"Mouse intensity increased to: {self.mouse_intensity:.1f}")
+
+    def decrease_mouse_intensity(self):
+        """Decrease the mouse interaction intensity by 0.1, with a minimum of 0.1"""
+        self.mouse_intensity = max(0.1, self.mouse_intensity - 0.1)
+        if "mouse_intensity" in self.program:
+            self.program["mouse_intensity"] = self.mouse_intensity  # type: ignore
+        logger.debug(f"Mouse intensity decreased to: {self.mouse_intensity:.1f}")
+
+    def add_shockwave(self, x: float, y: float, intensity: float = 1.0):
+        """Add a shockwave effect at the specified position"""
+        current_time = time()
+        
+        # Remove oldest shockwave if we're at the limit
+        if len(self.shockwaves) >= self.max_effects:
+            self.shockwaves.pop(0)
+        
+        # Add new shockwave [x, y, start_time, intensity]
+        self.shockwaves.append([x, y, current_time, intensity])
+        logger.debug(f"Added shockwave at ({x:.0f}, {y:.0f}) with intensity {intensity:.1f}")
+
+    def add_ripple(self, x: float, y: float, intensity: float = 1.0):
+        """Add a ripple effect at the specified position"""
+        current_time = time()
+        
+        # Remove oldest ripple if we're at the limit
+        if len(self.ripples) >= self.max_effects:
+            self.ripples.pop(0)
+        
+        # Add new ripple [x, y, start_time, intensity]
+        self.ripples.append([x, y, current_time, intensity])
+        logger.debug(f"Added ripple at ({x:.0f}, {y:.0f}) with intensity {intensity:.1f}")
+
+    def update_click_effects(self):
+        """Update and clean up expired click effects"""
+        current_time = time()
+        shockwave_duration = 2.0  # Shockwaves last 2 seconds
+        ripple_duration = 3.0     # Ripples last 3 seconds
+        
+        # Remove expired shockwaves
+        self.shockwaves = [sw for sw in self.shockwaves if (current_time - sw[2]) < shockwave_duration]
+        
+        # Remove expired ripples
+        self.ripples = [rp for rp in self.ripples if (current_time - rp[2]) < ripple_duration]
+
+    def _update_click_effect_uniforms(self):
+        """Update shader uniforms with current click effect data"""
+        current_time = time()
+        
+        # Prepare shockwave data for shader (up to max_effects)
+        shockwave_data = []
+        for i in range(self.max_effects):
+            if i < len(self.shockwaves):
+                sw = self.shockwaves[i]
+                x, y, start_time, intensity = sw
+                age = current_time - start_time
+                # Normalize coordinates to [0,1] range
+                norm_x = x / self.resolution[0]
+                norm_y = y / self.resolution[1]
+                shockwave_data.extend([norm_x, norm_y, age, intensity])
+            else:
+                # Inactive slot - use negative age to indicate inactive
+                shockwave_data.extend([0.0, 0.0, -1.0, 0.0])
+        
+        # Prepare ripple data for shader (up to max_effects)
+        ripple_data = []
+        for i in range(self.max_effects):
+            if i < len(self.ripples):
+                rp = self.ripples[i]
+                x, y, start_time, intensity = rp
+                age = current_time - start_time
+                # Normalize coordinates to [0,1] range
+                norm_x = x / self.resolution[0]
+                norm_y = y / self.resolution[1]
+                ripple_data.extend([norm_x, norm_y, age, intensity])
+            else:
+                # Inactive slot - use negative age to indicate inactive
+                ripple_data.extend([0.0, 0.0, -1.0, 0.0])
+        
+        # Update shader uniforms
+        if "shockwave_data" in self.program:
+            self.program["shockwave_data"] = shockwave_data  # type: ignore
+        if "ripple_data" in self.program:
+            self.program["ripple_data"] = ripple_data  # type: ignore
 
     def toggle_warp_first(self):
         """Toggle the order of warp and symmetry application."""
@@ -2308,7 +2413,8 @@ class KarmaVisualizer:
             'time', 'animation_speed', 'rotation', 'trail_intensity',
             'glow_intensity', 'glow_radius', 'symmetry_mode', 'kaleidoscope_sections',
             'smoke_intensity', 'pulse_scale', 'mouse_position', 'resolution',
-            'mouse_enabled', 'warp_first', 'bounce_enabled', 'bounce_height',
+            'mouse_enabled', 'mouse_intensity', 'warp_first', 'bounce_enabled', 'bounce_height',
+            'shockwave_data', 'ripple_data',
             'waveform_data', 'waveform_length', 'waveform_scale', 'waveform_style',
             'waveform_enabled', 'waveform_color'
         ]

@@ -344,10 +344,10 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                     # Intensity Controls
                     elif event.key == pygame.K_LEFTBRACKET:
                         vis.decrease_pulse_intensity()
-                        update_config_menu_setting("pulse_intensity", vis.pulse_intensity)
+                        update_config_menu_setting("pulse_intensity", vis.pulse_intensity_multiplier)
                     elif event.key == pygame.K_RIGHTBRACKET:
                         vis.increase_pulse_intensity()
-                        update_config_menu_setting("pulse_intensity", vis.pulse_intensity)
+                        update_config_menu_setting("pulse_intensity", vis.pulse_intensity_multiplier)
 
                     elif (
                         event.key == pygame.K_f
@@ -496,6 +496,26 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                         from modules.benchmark import print_bottleneck_report, get_benchmark_coverage_report
                         print("\n" + get_benchmark_coverage_report())
                         print_bottleneck_report(threshold_ms=2.0)  # Lower threshold for more detailed analysis
+
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    if event.button == 1:  # Left mouse button
+                        mouse_x, mouse_y = pygame.mouse.get_pos()
+                        # Invert y-axis to match shader coordinate system
+                        inverted_y = vis.resolution[1] - mouse_y
+                        vis.add_shockwave(float(mouse_x), float(inverted_y))
+                    elif event.button == 2:  # Middle mouse button
+                        vis.toggle_mouse_interaction()
+                    elif event.button == 3:  # Right mouse button
+                        mouse_x, mouse_y = pygame.mouse.get_pos()
+                        # Invert y-axis to match shader coordinate system
+                        inverted_y = vis.resolution[1] - mouse_y
+                        vis.add_ripple(float(mouse_x), float(inverted_y))
+                elif event.type == pygame.MOUSEWHEEL:
+                    # Mouse wheel controls mouse interaction intensity
+                    if event.y > 0:  # Scroll up
+                        vis.increase_mouse_intensity()
+                    elif event.y < 0:  # Scroll down
+                        vis.decrease_mouse_intensity()
 
                 # Pass event to config menu if visible
                 if config_menu.visible and config_menu.handle_event(event):
@@ -752,7 +772,8 @@ def main():
                             'time', 'animation_speed', 'rotation', 'trail_intensity',
                             'glow_intensity', 'symmetry_mode', 'kaleidoscope_sections',
                             'smoke_intensity', 'pulse_scale', 'mouse_position', 'resolution',
-                            'mouse_enabled', 'warp_first', 'bounce_enabled', 'bounce_height',
+                            'mouse_enabled', 'mouse_intensity', 'warp_first', 'bounce_enabled', 'bounce_height',
+                            'shockwave_data', 'ripple_data',
                             'waveform_data', 'waveform_length', 'waveform_scale',
                             'waveform_enabled', 'waveform_color'
                         ]
@@ -798,7 +819,8 @@ def main():
                             'time', 'animation_speed', 'rotation', 'trail_intensity',
                             'glow_intensity', 'symmetry_mode', 'kaleidoscope_sections',
                             'smoke_intensity', 'pulse_scale', 'mouse_position', 'resolution',
-                            'mouse_enabled', 'warp_first', 'bounce_enabled', 'bounce_height',
+                            'mouse_enabled', 'mouse_intensity', 'warp_first', 'bounce_enabled', 'bounce_height',
+                            'shockwave_data', 'ripple_data',
                             'waveform_data', 'waveform_length', 'waveform_scale',
                             'waveform_enabled', 'waveform_color'
                         ]
@@ -869,9 +891,12 @@ def main():
                             "mouse_position",
                             "resolution",
                             "mouse_enabled",
+                            "mouse_intensity",
                             "warp_first",
                             "bounce_enabled",
                             "bounce_height",
+                            "shockwave_data",
+                            "ripple_data",
                             "waveform_data",
                             "waveform_length",
                             "waveform_scale",
@@ -952,9 +977,12 @@ def main():
                             "mouse_position",
                             "resolution",
                             "mouse_enabled",
+                            "mouse_intensity",
                             "warp_first",
                             "bounce_enabled",
                             "bounce_height",
+                            "shockwave_data",
+                            "ripple_data",
                             "waveform_data",
                             "waveform_length",
                             "waveform_scale",

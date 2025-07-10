@@ -36,9 +36,12 @@ uniform float pulse_scale;  // Added uniform for pulse scale
 uniform vec2 mouse_position;  // Add mouse position uniform
 uniform vec2 resolution;  // Add resolution uniform
 uniform bool mouse_enabled;  // Add mouse interaction toggle
+uniform float mouse_intensity;  // Add mouse interaction intensity
 uniform bool warp_first;     // NEW: Toggle for warp vs symmetry order
 uniform bool bounce_enabled; // Toggle for bounce effect
 uniform float bounce_height; // Height of bounce effect
+uniform float[20] shockwave_data;  // Shockwave data: [x,y,age,intensity] * 5
+uniform float[20] ripple_data;     // Ripple data: [x,y,age,intensity] * 5
 in vec2 uv;
 out vec4 fragColor;
 
@@ -294,6 +297,106 @@ vec2 apply_warp(vec2 pos, float t, int warp_index) {
     return vec2(0.0); // Default: no warp offset
 }
 
+// Function to calculate shockwave displacement
+vec2 apply_shockwaves(vec2 pos) {
+    vec2 displacement = vec2(0.0);
+    
+    // Process up to 5 shockwaves
+    for (int i = 0; i < 5; i++) {
+        int base_idx = i * 4;
+        float sw_x = shockwave_data[base_idx];
+        float sw_y = shockwave_data[base_idx + 1];
+        float sw_age = shockwave_data[base_idx + 2];
+        float sw_intensity = shockwave_data[base_idx + 3];
+        
+        // Skip inactive shockwaves (negative age)
+        if (sw_age < 0.0) continue;
+        
+        vec2 sw_center = vec2(sw_x, sw_y);
+        float dist = distance(pos, sw_center);
+        
+        // Shockwave parameters
+        float shockwave_duration = 2.0;
+        float shockwave_speed = 0.5; // How fast the wave expands
+        float shockwave_width = 0.1; // Width of the shockwave ring
+        
+        // Calculate shockwave radius based on age
+        float wave_radius = sw_age * shockwave_speed;
+        
+        // Calculate intensity falloff over time
+        float time_falloff = 1.0 - (sw_age / shockwave_duration);
+        time_falloff = max(0.0, time_falloff);
+        
+        // Calculate distance from shockwave ring
+        float ring_dist = abs(dist - wave_radius);
+        
+        // Create sharp ring effect
+        float ring_intensity = 1.0 - smoothstep(0.0, shockwave_width, ring_dist);
+        
+        // Calculate displacement direction (radial outward)
+        vec2 direction = normalize(pos - sw_center);
+        if (length(pos - sw_center) < 0.001) {
+            direction = vec2(1.0, 0.0); // Avoid division by zero
+        }
+        
+        // Apply displacement
+        float total_intensity = ring_intensity * time_falloff * sw_intensity * 0.30;
+        displacement += direction * total_intensity;
+    }
+    
+    return displacement;
+}
+
+// Function to calculate ripple displacement
+vec2 apply_ripples(vec2 pos) {
+    vec2 displacement = vec2(0.0);
+    
+    // Process up to 5 ripples
+    for (int i = 0; i < 5; i++) {
+        int base_idx = i * 4;
+        float rp_x = ripple_data[base_idx];
+        float rp_y = ripple_data[base_idx + 1];
+        float rp_age = ripple_data[base_idx + 2];
+        float rp_intensity = ripple_data[base_idx + 3];
+        
+        // Skip inactive ripples (negative age)
+        if (rp_age < 0.0) continue;
+        
+        vec2 rp_center = vec2(rp_x, rp_y);
+        float dist = distance(pos, rp_center);
+        
+        // Ripple parameters
+        float ripple_duration = 3.0;
+        float ripple_frequency = 8.0; // How many waves
+        float ripple_speed = 0.3; // How fast ripples expand
+        
+        // Calculate time-based falloff
+        float time_falloff = 1.0 - (rp_age / ripple_duration);
+        time_falloff = max(0.0, time_falloff);
+        
+        // Calculate wave phase based on distance and time
+        float wave_phase = (dist - rp_age * ripple_speed) * ripple_frequency;
+        
+        // Create sine wave displacement
+        float wave_amplitude = sin(wave_phase) * time_falloff * rp_intensity * 0.06;
+        
+        // Apply distance falloff
+        float distance_falloff = 1.0 / (1.0 + dist * 3.0);
+        wave_amplitude *= distance_falloff;
+        
+        // Calculate displacement direction (radial)
+        vec2 direction = normalize(pos - rp_center);
+        if (length(pos - rp_center) < 0.001) {
+            direction = vec2(1.0, 0.0); // Avoid division by zero
+        }
+        
+        // Apply displacement
+        displacement += direction * wave_amplitude;
+    }
+    
+    return displacement;
+}
+
 void main() {
     // Initialize position from UV coordinates
     vec2 pos = uv;
@@ -335,13 +438,18 @@ void main() {
 
     // Calculate mouse values but don't apply them yet
     vec2 mouse_pos = mouse_position / resolution;
+    mouse_pos.y = 1.0 - mouse_pos.y;  // Invert y-axis to match shader coordinate system
     float mouse_dist = distance(orig_pos, mouse_pos);
-    float mouse_influence = 0.05 / (mouse_dist + 0.05);
+    float mouse_influence = (0.05 * mouse_intensity) / (mouse_dist + 0.05);
 
     // Apply mouse interaction only if enabled
     if (mouse_enabled) {
         pos += (orig_pos - mouse_pos) * mouse_influence;
     }
+
+    // Apply click effects (shockwaves and ripples)
+    pos += apply_shockwaves(pos);
+    pos += apply_ripples(pos);
 
     // GPU waveform will be rendered after symmetry transformations
 
