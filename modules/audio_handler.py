@@ -146,6 +146,10 @@ class AudioProcessor:
         self.frequency_balance = 0.0
         self.beat_sensitivity = 1.0
 
+        # Mel transform configuration
+        self.mel_transform_enabled = True  # Enable mel transform by default
+        self.n_mels = 128  # Number of mel bands
+
         # Thread-safe locks
         self.state_lock = Lock()
         self.stream_lock = Lock()
@@ -218,8 +222,189 @@ class AudioProcessor:
             # Return original data as fallback
             return fft_data
 
+    def hz_to_mel(self, hz: float) -> float:
+        """Convert frequency in Hz to mel scale"""
+        return 2595.0 * np.log10(1.0 + hz / 700.0)
+
+    def mel_to_hz(self, mel: float) -> float:
+        """Convert mel scale to frequency in Hz"""
+        return 700.0 * (10.0**(mel / 2595.0) - 1.0)
+
+    def create_mel_filterbank(self, n_mels: int = 128, fmin: float = 0.0, fmax: float = None) -> np.ndarray:
+        """
+        Create a mel-scale filterbank matrix
+        
+        Args:
+            n_mels: Number of mel bands (default: 128)
+            fmin: Minimum frequency in Hz (default: 0.0)
+            fmax: Maximum frequency in Hz (default: sample_rate/2)
+            
+        Returns:
+            np.ndarray: Filterbank matrix of shape (n_mels, n_fft_bins)
+        """
+        try:
+            if fmax is None:
+                fmax = self.sample_rate / 2.0
+            
+            # Number of FFT bins
+            n_fft_bins = self.chunk_size // 2 + 1
+            
+            # Create mel-spaced frequency points
+            mel_min = self.hz_to_mel(fmin)
+            mel_max = self.hz_to_mel(fmax)
+            mel_points = np.linspace(mel_min, mel_max, n_mels + 2)
+            hz_points = np.array([self.mel_to_hz(mel) for mel in mel_points])
+            
+            # Convert Hz points to FFT bin indices
+            bin_points = np.floor((n_fft_bins - 1) * hz_points / fmax).astype(int)
+            bin_points = np.clip(bin_points, 0, n_fft_bins - 1)
+            
+            # Create filterbank matrix
+            filterbank = np.zeros((n_mels, n_fft_bins))
+            
+            for i in range(n_mels):
+                left = bin_points[i]
+                center = bin_points[i + 1]
+                right = bin_points[i + 2]
+                
+                # Create triangular filter
+                for j in range(left, center):
+                    if center != left:
+                        filterbank[i, j] = (j - left) / (center - left)
+                
+                for j in range(center, right):
+                    if right != center:
+                        filterbank[i, j] = (right - j) / (right - center)
+            
+            return filterbank
+            
+        except Exception as e:
+            logger.error(f"Error creating mel filterbank: {e}")
+            # Return identity-like matrix as fallback
+            return np.eye(min(n_mels, self.chunk_size // 2 + 1), self.chunk_size // 2 + 1)
+
+    def create_mel_filterbank_for_size(self, n_mels: int, n_fft_bins: int, fmin: float = 0.0, fmax: float = 0.0) -> np.ndarray:
+        """
+        Create a mel-scale filterbank matrix for a specific FFT size
+        
+        Args:
+            n_mels: Number of mel bands
+            n_fft_bins: Number of FFT bins in the input data
+            fmin: Minimum frequency in Hz (default: 0.0)
+            fmax: Maximum frequency in Hz (default: sample_rate/2)
+            
+        Returns:
+            np.ndarray: Filterbank matrix of shape (n_mels, n_fft_bins)
+        """
+        try:
+            if fmax is None:
+                fmax = self.sample_rate / 2.0
+            
+            # Create mel-spaced frequency points
+            mel_min = self.hz_to_mel(fmin)
+            mel_max = self.hz_to_mel(fmax)
+            mel_points = np.linspace(mel_min, mel_max, n_mels + 2)
+            hz_points = np.array([self.mel_to_hz(mel) for mel in mel_points])
+            
+            # Convert Hz points to FFT bin indices
+            bin_points = np.floor((n_fft_bins - 1) * hz_points / fmax).astype(int)
+            bin_points = np.clip(bin_points, 0, n_fft_bins - 1)
+            
+            # Create filterbank matrix
+            filterbank = np.zeros((n_mels, n_fft_bins))
+            
+            for i in range(n_mels):
+                left = bin_points[i]
+                center = bin_points[i + 1]
+                right = bin_points[i + 2]
+                
+                # Create triangular filter
+                for j in range(left, center):
+                    if center != left:
+                        filterbank[i, j] = (j - left) / (center - left)
+                
+                for j in range(center, right):
+                    if right != center:
+                        filterbank[i, j] = (right - j) / (right - center)
+            
+            return filterbank
+            
+        except Exception as e:
+            logger.error(f"Error creating mel filterbank for size {n_fft_bins}: {e}")
+            # Return identity-like matrix as fallback
+            return np.eye(min(n_mels, n_fft_bins), n_fft_bins)
+
+    def apply_mel_transform(self, fft_data: np.ndarray, n_mels: int = 128) -> np.ndarray:
+        """
+        Apply mel-scale transform to logarithmically scaled FFT data
+        
+        Args:
+            fft_data: Logarithmically scaled FFT magnitude spectrum
+            n_mels: Number of mel bands to output (default: 128)
+            
+        Returns:
+            np.ndarray: Mel-scaled spectrum of length n_mels
+        """
+        try:
+            # Get actual FFT data size
+            n_fft_bins = len(fft_data)
+            
+            # Create mel filterbank if not cached or if parameters changed
+            cache_key = (n_mels, n_fft_bins)
+            if not hasattr(self, '_mel_filterbank_cache_key') or self._mel_filterbank_cache_key != cache_key:
+                self._mel_filterbank = self.create_mel_filterbank_for_size(n_mels, n_fft_bins)
+                self._mel_filterbank_cache_key = cache_key
+                logger.debug(f"Created mel filterbank: {n_mels} bands x {n_fft_bins} FFT bins")
+            
+            # Apply mel filterbank to FFT data
+            mel_spectrum = np.dot(self._mel_filterbank, fft_data)
+            
+            # Ensure non-negative values
+            mel_spectrum = np.maximum(mel_spectrum, 0.0)
+            
+            # Normalize to maintain [0, 1] range
+            if np.max(mel_spectrum) > 0:
+                mel_spectrum = mel_spectrum / np.max(mel_spectrum)
+            
+            return mel_spectrum
+            
+        except Exception as e:
+            logger.error(f"Error in mel transform: {e}")
+            # Return truncated or padded original data as fallback
+            if len(fft_data) >= n_mels:
+                return fft_data[:n_mels]
+            else:
+                padded = np.zeros(n_mels)
+                padded[:len(fft_data)] = fft_data
+                return padded
+
+    def toggle_mel_transform(self):
+        """Toggle mel transform on/off"""
+        self.mel_transform_enabled = not self.mel_transform_enabled
+        logger.info(f"Mel transform {'enabled' if self.mel_transform_enabled else 'disabled'}")
+        
+        # Clear cached filterbank to force recreation with new settings
+        if hasattr(self, '_mel_filterbank_cache_key'):
+            delattr(self, '_mel_filterbank_cache_key')
+        if hasattr(self, '_mel_filterbank'):
+            delattr(self, '_mel_filterbank')
+
+    def set_mel_bands(self, n_mels: int):
+        """Set the number of mel bands"""
+        if n_mels > 0 and n_mels <= 512:  # Reasonable limits
+            self.n_mels = n_mels
+            logger.info(f"Mel bands set to: {n_mels}")
+            
+            # Clear cached filterbank to force recreation with new settings
+            if hasattr(self, '_mel_filterbank_cache_key'):
+                delattr(self, '_mel_filterbank_cache_key')
+            if hasattr(self, '_mel_filterbank'):
+                delattr(self, '_mel_filterbank')
+        else:
+            logger.warning(f"Invalid number of mel bands: {n_mels}. Must be between 1 and 512.")
+
     @benchmark("calculate_fft")
-    def calculate_fft(self, audio_data, normalize=True, apply_window=True, logarithmic=True):
+    def calculate_fft(self, audio_data, normalize=True, apply_window=True, logarithmic=True, mel_transform=True, n_mels=128):
         """
         Centralized FFT calculation method with consistent preprocessing
         
@@ -228,6 +413,8 @@ class AudioProcessor:
             normalize: Whether to normalize the FFT output (default: True)
             apply_window: Whether to apply windowing function (default: True)
             logarithmic: Whether to apply logarithmic scaling for human hearing (default: True)
+            mel_transform: Whether to apply mel-scale transform after logarithmic scaling (default: True)
+            n_mels: Number of mel bands if mel_transform is True (default: 128)
             
         Returns:
             tuple: (fft_data, frequencies) where fft_data is the magnitude spectrum
@@ -236,8 +423,12 @@ class AudioProcessor:
         try:
             # Ensure audio data is valid and properly shaped
             if audio_data is None or len(audio_data) == 0:
-                return np.zeros(self.chunk_size // 2 + 1, dtype=self.data_format), \
-                       np.fft.rfftfreq(self.chunk_size, d=1.0 / self.sample_rate)
+                if mel_transform and logarithmic:
+                    return np.zeros(n_mels, dtype=self.data_format), \
+                           np.linspace(0, self.sample_rate / 2, n_mels)
+                else:
+                    return np.zeros(self.chunk_size // 2 + 1, dtype=self.data_format), \
+                           np.fft.rfftfreq(self.chunk_size, d=1.0 / self.sample_rate)
 
             # Ensure audio data is the right shape and type
             if isinstance(audio_data, (bytes, bytearray)):
@@ -278,16 +469,29 @@ class AudioProcessor:
                 # Only apply linear normalization if not using logarithmic scaling
                 fft_data = fft_data / np.max(fft_data)
 
-            # Calculate frequency bins
-            frequencies = np.fft.rfftfreq(len(audio_data), d=1.0 / self.sample_rate)
+            # Apply mel-scale transform if requested
+            if mel_transform and logarithmic:
+                original_size = len(fft_data)
+                fft_data = self.apply_mel_transform(fft_data, n_mels)
+                # Create mel-spaced frequency bins for output
+                mel_freqs = np.linspace(0, self.sample_rate / 2, n_mels)
+                frequencies = mel_freqs
+                # logger.debug(f"Applied mel transform: {original_size} FFT bins -> {n_mels} mel bands")
+            else:
+                # Calculate standard frequency bins
+                frequencies = np.fft.rfftfreq(len(audio_data), d=1.0 / self.sample_rate)
 
             return fft_data, frequencies
 
         except Exception as e:
             logger.error(f"Error in FFT calculation: {e}")
             # Return safe default values
-            return np.zeros(self.chunk_size // 2 + 1, dtype=self.data_format), \
-                   np.fft.rfftfreq(self.chunk_size, d=1.0 / self.sample_rate)
+            if mel_transform and logarithmic:
+                return np.zeros(n_mels, dtype=self.data_format), \
+                       np.linspace(0, self.sample_rate / 2, n_mels)
+            else:
+                return np.zeros(self.chunk_size // 2 + 1, dtype=self.data_format), \
+                       np.fft.rfftfreq(self.chunk_size, d=1.0 / self.sample_rate)
 
     def get_latest_fft_data(self):
         """
@@ -301,7 +505,9 @@ class AudioProcessor:
             # Get the latest audio data using the existing get_audio_data method
             audio_data = self.get_audio_data()
             if audio_data and hasattr(audio_data, "fft_data"):
-                frequencies = np.fft.rfftfreq(self.chunk_size, d=1.0 / self.sample_rate)
+                # Since we're using mel transform with 128 bands, create mel-spaced frequencies
+                n_mels = len(audio_data.fft_data)
+                frequencies = np.linspace(0, self.sample_rate / 2, n_mels)
                 return audio_data.fft_data, frequencies
             return None, None
         except Exception as e:
@@ -385,8 +591,15 @@ class AudioProcessor:
                     warmth=0.0,
                 )
 
-            # Use centralized FFT calculation - this handles all preprocessing with logarithmic scaling
-            fft_data, freqs = self.calculate_fft(audio_data, normalize=False, apply_window=True, logarithmic=True)
+            # Use centralized FFT calculation - this handles all preprocessing with logarithmic scaling and mel transform
+            fft_data, freqs = self.calculate_fft(
+                audio_data, 
+                normalize=False, 
+                apply_window=True, 
+                logarithmic=True, 
+                mel_transform=self.mel_transform_enabled, 
+                n_mels=self.n_mels
+            )
 
             # Get the preprocessed audio data from the FFT calculation
             # We need to redo the preprocessing here to get the cleaned audio_data
