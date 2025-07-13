@@ -5,6 +5,7 @@ Provides centralized logging with debug flag support
 
 import logging
 import sys
+import os
 from typing import Optional
 
 
@@ -70,6 +71,16 @@ def setup_logging(debug: bool = False) -> logging.Logger:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
     
+    # File handler for ~/KarmaViz/karmaviz.log
+    log_dir = os.path.expanduser('~/KarmaViz/logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, 'karmaviz.log')
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)  # Log everything to file
+    file_formatter = logging.Formatter('%(asctime)s %(levelname)s - %(name)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    
     # Prevent propagation to root logger
     logger.propagate = False
     
@@ -98,8 +109,7 @@ _logger: Optional[logging.Logger] = None
 def init_logging(debug: bool=False) -> None:
     """Initialize the global logging configuration"""
     global _logger
-    if debug:
-        _logger = setup_logging(debug)
+    _logger = setup_logging(debug)
 
 
 def log_debug(message: str) -> None:
