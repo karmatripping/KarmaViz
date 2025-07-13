@@ -1,9 +1,8 @@
 from queue import Empty, Full, Queue
 from threading import Event, Lock, Thread
 from time import sleep, time
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
-
-
 from dataclasses import dataclass
 
 from config.constants import CHANNELS, CHUNK, DATA_FORMAT, RATE
@@ -12,13 +11,11 @@ from sounddevice import CallbackFlags, InputStream, PortAudioError
 from modules.benchmark import benchmark
 from modules.logging_config import get_logger
 
-import numpy as np
-
 # Get logger for this module
 logger = get_logger('audio_handler')
 
 
-def list_audio_devices():
+def list_audio_devices() -> List[Dict[str, Any]]:
     """List available audio input devices"""
     try:
         import sounddevice as sd
@@ -38,27 +35,7 @@ def list_audio_devices():
         return []
 
 
-def list_audio_devices():
-    """List available audio input devices"""
-    try:
-        import sounddevice as sd
-        devices = sd.query_devices()
-        input_devices = []
-        for i, device in enumerate(devices):
-            if device['max_input_channels'] > 0:
-                input_devices.append({
-                    'id': i,
-                    'name': device['name'],
-                    'channels': device['max_input_channels'],
-                    'sample_rate': device['default_samplerate']
-                })
-        return input_devices
-    except Exception as e:
-        logger.error(f"Error listing audio devices: {e}")
-        return []
-
-
-def get_default_audio_device():
+def get_default_audio_device() -> Optional[int]:
     """Get the default audio input device"""
     try:
         import sounddevice as sd
@@ -76,14 +53,16 @@ class AudioData:
     fft_data: np.ndarray
     amplitude: float
     beat_detected: bool
+    beat_count: int
     frequency_balance: float
     energy: float
     warmth: float
+    last_beat_time: float
 
 
 class DummyStream:
     ''' Create dummy audio stream for fallback '''
-    def __init__(self, chunk_size=CHUNK):
+    def __init__(self, chunk_size: int = CHUNK):
         # Pre-allocate buffer to avoid garbage collection during audio processing
         self.chunk_size = chunk_size
         self.dummy_data = np.zeros((chunk_size,), dtype=DATA_FORMAT)
@@ -91,18 +70,18 @@ class DummyStream:
         self.callback_flags = CallbackFlags()
         self.active = True  # Pretend to be active
 
-    def read(self, frames):
+    def read(self, frames: int) -> Tuple[np.ndarray, CallbackFlags]:
         # Ignore the frames parameter and return the pre-allocated buffer
         # This ensures consistent behavior with the real stream
         return self.dummy_data, self.callback_flags
 
-    def start(self):
+    def start(self) -> None:
         pass
 
-    def stop(self):
+    def stop(self) -> None:
         pass
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
@@ -111,11 +90,11 @@ class AudioProcessor:
 
     def __init__(
         self,
-        chunk_size=CHUNK,
-        sample_rate=RATE,
-        channels=CHANNELS,
-        data_format=DATA_FORMAT,
-        device=None,
+        chunk_size: int = CHUNK,
+        sample_rate: int = RATE,
+        channels: int = CHANNELS,
+        data_format: np.dtype = DATA_FORMAT,
+        device: Optional[int] = None,
     ):
         self.chunk_size = chunk_size
         self.sample_rate = sample_rate
@@ -136,15 +115,15 @@ class AudioProcessor:
         # Initialize audio processing state with safe defaults
         self.amplitude = 0.0
         self.energy_buffer = 0.0
-        self.threshold_buffer = 0.1
+        self.threshold_buffer = 0.01  # Much lower initial threshold
         self.last_beat_time = time()
         self.beat_detected = False
-        self.min_beat_interval = 0.1
-        self.last_manual_beat_time = time()
+        self.beat_count = 0.0
+        self.min_beat_interval = 0.05  # Reduced from 0.1 to allow faster beats
         self.excess_energy = 0.0
         self.rotation_direction = 0
         self.frequency_balance = 0.0
-        self.beat_sensitivity = 1.0
+        self.beat_sensitivity = 1.5  # Increased default sensitivity from 1.0 to 1.5
 
         # Mel transform configuration
         self.mel_transform_enabled = True  # Enable mel transform by default
@@ -167,7 +146,7 @@ class AudioProcessor:
             logger.error(f"Error creating initial audio stream: {e}")
             self.stream = DummyStream(self.chunk_size)
 
-    def _create_audio_stream(self):
+    def _create_audio_stream(self) -> Union[InputStream, 'DummyStream']:
         """Create the audio input stream with error handling"""
         try:
             # Use only supported parameters for InputStream
@@ -230,7 +209,7 @@ class AudioProcessor:
         """Convert mel scale to frequency in Hz"""
         return 700.0 * (10.0**(mel / 2595.0) - 1.0)
 
-    def create_mel_filterbank(self, n_mels: int = 128, fmin: float = 0.0, fmax: float = None) -> np.ndarray:
+    def create_mel_filterbank(self, n_mels: int = 128, fmin: float = 0.0, fmax: Optional[float] = None) -> np.ndarray:
         """
         Create a mel-scale filterbank matrix
         
@@ -283,7 +262,7 @@ class AudioProcessor:
             # Return identity-like matrix as fallback
             return np.eye(min(n_mels, self.chunk_size // 2 + 1), self.chunk_size // 2 + 1)
 
-    def create_mel_filterbank_for_size(self, n_mels: int, n_fft_bins: int, fmin: float = 0.0, fmax: float = 0.0) -> np.ndarray:
+    def create_mel_filterbank_for_size(self, n_mels: int, n_fft_bins: int, fmin: float = 0.0, fmax: Optional[float] = None) -> np.ndarray:
         """
         Create a mel-scale filterbank matrix for a specific FFT size
         
@@ -378,7 +357,7 @@ class AudioProcessor:
                 padded[:len(fft_data)] = fft_data
                 return padded
 
-    def toggle_mel_transform(self):
+    def toggle_mel_transform(self) -> None:
         """Toggle mel transform on/off"""
         self.mel_transform_enabled = not self.mel_transform_enabled
         logger.info(f"Mel transform {'enabled' if self.mel_transform_enabled else 'disabled'}")
@@ -386,10 +365,21 @@ class AudioProcessor:
         # Clear cached filterbank to force recreation with new settings
         if hasattr(self, '_mel_filterbank_cache_key'):
             delattr(self, '_mel_filterbank_cache_key')
+
+    def reset_beat_detection_buffers(self) -> None:
+        """Reset beat detection buffers to initial state"""
+        with self.state_lock:
+            self.energy_buffer = 0.0
+            self.beat_count = 0.0
+            self.threshold_buffer = 0.01
+            self.last_beat_time = time()
+            self.beat_detected = False
+            self.excess_energy = 0.0
+            logger.info("Beat detection buffers reset")
         if hasattr(self, '_mel_filterbank'):
             delattr(self, '_mel_filterbank')
 
-    def set_mel_bands(self, n_mels: int):
+    def set_mel_bands(self, n_mels: int) -> None:
         """Set the number of mel bands"""
         if n_mels > 0 and n_mels <= 512:  # Reasonable limits
             self.n_mels = n_mels
@@ -404,7 +394,15 @@ class AudioProcessor:
             logger.warning(f"Invalid number of mel bands: {n_mels}. Must be between 1 and 512.")
 
     @benchmark("calculate_fft")
-    def calculate_fft(self, audio_data, normalize=True, apply_window=True, logarithmic=True, mel_transform=True, n_mels=128):
+    def calculate_fft(
+        self, 
+        audio_data: np.ndarray, 
+        normalize: bool = True, 
+        apply_window: bool = True, 
+        logarithmic: bool = True, 
+        mel_transform: bool = True, 
+        n_mels: int = 128
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Centralized FFT calculation method with consistent preprocessing
         
@@ -493,7 +491,7 @@ class AudioProcessor:
                 return np.zeros(self.chunk_size // 2 + 1, dtype=self.data_format), \
                        np.fft.rfftfreq(self.chunk_size, d=1.0 / self.sample_rate)
 
-    def get_latest_fft_data(self):
+    def get_latest_fft_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Get the latest FFT data from the most recent audio processing
         This method doesn't consume from the main queue to avoid interfering with normal flow
@@ -514,7 +512,7 @@ class AudioProcessor:
             logger.error(f"Error getting latest FFT data: {e}")
             return None, None
 
-    def start(self):
+    def start(self) -> None:
         """Start the audio processing thread"""
         if not self.running:
             self.running = True
@@ -535,7 +533,7 @@ class AudioProcessor:
                         logger.error(f"Error starting stream: {e}")
                         self.stream = DummyStream(self.chunk_size)
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the audio processing thread and cleanup resources"""
         if self.running:
             self.running = False
@@ -570,12 +568,12 @@ class AudioProcessor:
             except Empty:
                 pass
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Ensure cleanup on deletion"""
         self.stop()
 
     @benchmark("audio_process_chunk")
-    def _process_audio_chunk(self, audio_data):
+    def _process_audio_chunk(self, audio_data: np.ndarray) -> AudioData:
         """Process a chunk of audio data with robust error handling and bounds checking"""
         try:
             # Ensure audio data is valid, finite, and properly shaped
@@ -586,9 +584,11 @@ class AudioProcessor:
                     fft_data=empty_fft,
                     amplitude=0.0,
                     beat_detected=False,
+                    beat_count = 0.0,
                     frequency_balance=0.0,
                     energy=0.0,
                     warmth=0.0,
+                    last_beat_time=self.last_beat_time,
                 )
 
             # Use centralized FFT calculation - this handles all preprocessing with logarithmic scaling and mel transform
@@ -629,7 +629,7 @@ class AudioProcessor:
                     freqs >= vocal_range[0], freqs <= vocal_range[1]
                 )
 
-                # Initialize these variables to avoid reference-before-assignment errors
+                # Ifnitialize these variables to avoid reference-before-assignment errors
                 vocal_freqs = np.array([])
                 vocal_fft = np.array([])
 
@@ -656,6 +656,10 @@ class AudioProcessor:
             # Beat detection with thread safety
             with self.state_lock:
                 beat_detected = self._detect_beat(audio_data, fft_data)
+                self.beat_detected = beat_detected
+                if beat_detected:
+                    self.beat_count += 1
+                    
 
             # Calculate mood metrics with safety bounds
             energy = np.clip(amplitude * 4.0, 0.0, 1.0)
@@ -667,9 +671,11 @@ class AudioProcessor:
                 fft_data=fft_data,
                 amplitude=amplitude,
                 beat_detected=beat_detected,
+                beat_count=self.beat_count,
                 frequency_balance=frequency_balance,
                 energy=energy,
                 warmth=warmth,
+                last_beat_time=self.last_beat_time,
             )
 
         except Exception as e:
@@ -681,94 +687,138 @@ class AudioProcessor:
                 fft_data=empty_fft,
                 amplitude=0.0,
                 beat_detected=False,
+                beat_count=0,
                 frequency_balance=0.0,
                 energy=0.0,
                 warmth=0.0,
+                last_beat_time=self.last_beat_time,
             )
 
-    def _detect_beat(self, audio_data, fft_data):
-        """Detect beats in audio using frequency analysis with robust error handling"""
+    def _detect_beat(self, audio_data: np.ndarray, fft_data: np.ndarray) -> bool:
+        """Detect beats in audio using frequency analysis optimized for mel-transformed logarithmic data"""
         try:
-            # Focus on bass frequencies (40-200 Hz)
-            bass_bins = slice(2, 10)  # ~43-215 Hz with 22050 Hz sample rate
-            bass_energy = np.sum(np.clip(fft_data[bass_bins] ** 2, 0.0, np.inf))
-
-            # Sub-bass frequencies (20-60 Hz)
-            sub_bass_bins = slice(1, 3)  # ~21-64 Hz
-            sub_bass_energy = np.sum(np.clip(fft_data[sub_bass_bins] ** 2, 0.0, np.inf))
-
-            # Calculate RMS energy in dB with safety checks
-            bass_rms = np.sqrt(np.maximum(np.mean(bass_energy), 1e-10))
-            sub_bass_rms = np.sqrt(np.maximum(np.mean(sub_bass_energy), 1e-10))
-
-            # Use log10 with offset to prevent log(0)
-            bass_db = 20 * np.log10(bass_rms + 1e-10)
-            sub_bass_db = 20 * np.log10(sub_bass_rms + 1e-10)
-
-            # Combine with weighting
-            total_energy = np.clip(bass_db * 0.6 + sub_bass_db * 0.4, -100, 100)
-
-            # Normalize energy with safety bounds
-            normalized_energy = np.clip(
-                total_energy / (len(audio_data) * 1.5), 0.0, 10.0
-            )
-
+            n_bands = len(fft_data)
+            
+            # With mel transform, bass frequencies (20-200 Hz) are concentrated in the first few bands
+            # Mel scale gives more resolution to lower frequencies, so we need fewer bands for bass
+            if self.mel_transform_enabled:
+                # For 128 mel bands, roughly first 15-20 bands cover 20-300 Hz bass range
+                bass_band_count = max(3, min(20, int(n_bands * 0.15)))  # Increased from 10% to 15%
+                sub_bass_band_count = max(2, min(10, int(n_bands * 0.08)))  # Increased from 5% to 8%
+            else:
+                # For linear FFT bins, use frequency-based calculation
+                nyquist = self.sample_rate / 2
+                bass_freq_max = 300  # Hz - increased range
+                sub_bass_freq_max = 120  # Hz - increased range
+                bass_band_count = max(3, int((bass_freq_max / nyquist) * n_bands))
+                sub_bass_band_count = max(2, int((sub_bass_freq_max / nyquist) * n_bands))
+            
+            # Extract bass energy - since data is already log-scaled [0,1], work directly with it
+            bass_bands = fft_data[:bass_band_count]
+            sub_bass_bands = fft_data[:sub_bass_band_count]
+            
+            # Work directly with the log-scaled mel data but emphasize differences
+            # The key insight: even in log scale, beats should show relative increases
+            
+            # Use a power function to expand the differences in the log-scaled data
+            bass_expanded = np.power(bass_bands, 0.5)  # Square root to expand small differences
+            sub_bass_expanded = np.power(sub_bass_bands, 0.5)
+            
+            # Calculate weighted sum with emphasis on bass
+            bass_energy = np.sum(bass_expanded)
+            sub_bass_energy = np.sum(sub_bass_expanded)
+            
+            # Also include mid-range frequencies for fuller beat detection
+            mid_band_count = max(5, min(30, int(n_bands * 0.2)))
+            if bass_band_count + mid_band_count <= n_bands:
+                mid_bands = fft_data[bass_band_count:bass_band_count + mid_band_count]
+                mid_expanded = np.power(mid_bands, 0.5)
+                mid_energy = np.sum(mid_expanded) * 0.4
+            else:
+                mid_energy = 0.0
+            
+            # Combine energies with strong weighting toward bass
+            total_energy = bass_energy * 2.0 + sub_bass_energy * 1.5 + mid_energy
+            
+            # Normalize and scale to get reasonable values
+            normalized_energy = total_energy / max(bass_band_count + sub_bass_band_count, 1)
+            
             # Initialize buffers if needed
             if not hasattr(self, "energy_buffer") or np.isnan(self.energy_buffer):
                 self.energy_buffer = normalized_energy
             if not hasattr(self, "threshold_buffer") or np.isnan(self.threshold_buffer):
-                self.threshold_buffer = normalized_energy
+                self.threshold_buffer = max(normalized_energy * 0.3, 0.01)  # Start with 30% of current energy
 
-            # Smooth energy values with faster attack, slower decay
+            # Responsive smoothing for beat detection
+            attack_rate = 0.4  # Fast attack to catch beats
+            decay_rate = 0.1   # Faster decay to allow for quick changes
+            
             if normalized_energy > self.energy_buffer:
-                self.energy_buffer = np.clip(
-                    0.7 * self.energy_buffer + 0.3 * normalized_energy,
-                    0.0,
-                    10.0,
-                )
+                self.energy_buffer = (1 - attack_rate) * self.energy_buffer + attack_rate * normalized_energy
             else:
-                self.energy_buffer = np.clip(
-                    0.95 * self.energy_buffer + 0.05 * normalized_energy,
-                    0.0,
-                    10.0,
-                )
+                self.energy_buffer = (1 - decay_rate) * self.energy_buffer + decay_rate * normalized_energy
 
-            # Update threshold with beat sensitivity adjustment
-            self.threshold_buffer = np.clip(
-                0.98 * self.threshold_buffer + 0.02 * self.energy_buffer,
-                0.0,
-                10.0,
-            )
+            # Adaptive threshold - track a percentage of the smoothed energy
+            # Use faster adaptation if threshold is way off
+            threshold_diff = abs(self.threshold_buffer - self.energy_buffer * 0.5)
+            if threshold_diff > 0.02:  # If threshold is way off, adapt faster
+                threshold_rate = 0.05
+            else:
+                threshold_rate = 0.001  # Slower normal adaptation rate
+            
+            target_threshold = self.energy_buffer * 0.4  # Target 40% of smoothed energy (more sensitive)
+            self.threshold_buffer = (1 - threshold_rate) * self.threshold_buffer + threshold_rate * target_threshold
+            
+            # Lower minimum threshold for better sensitivity
+            self.threshold_buffer = max(self.threshold_buffer, 0.01)
 
-            # Check for beat with sensitivity adjustment
+            # Beat detection logic
             current_time = time()
-            min_time_between_beats = (
-                self.min_beat_interval
-            )  # Minimum 500ms between beats
-
-            # Calculate adjusted threshold with sensitivity
+            time_since_last_beat = current_time - self.last_beat_time
+            
+            # Apply beat sensitivity
             beat_sensitivity = np.clip(self.beat_sensitivity, 0.25, 4.0)
             adjusted_threshold = self.threshold_buffer / beat_sensitivity
+            
+            # Minimum threshold to prevent false positives
+            adjusted_threshold = max(adjusted_threshold, 0.005)
+            
+            # Energy spike detection to ensure we're detecting actual beats, not noise
+            energy_ratio = normalized_energy / max(self.energy_buffer, 0.0001)
+            spike_threshold = 1.05  # 5% increase over smoothed energy (more sensitive)
+            
+            # Beat conditions: energy must exceed threshold AND show a spike pattern
+            beat_detected = (
+                normalized_energy > adjusted_threshold and
+                time_since_last_beat > self.min_beat_interval and
+                energy_ratio > spike_threshold
+            )
 
-            if (
-                normalized_energy > adjusted_threshold
-                and current_time - self.last_beat_time > min_time_between_beats
-            ):
+            # Debug logging every 50th frame to see more activity
+            if hasattr(self, '_debug_counter'):
+                self._debug_counter += 1
+            else:
+                self._debug_counter = 0
+                
+            if beat_detected:
                 self.last_beat_time = current_time
-                # Calculate excess energy with bounds
+                # Calculate excess energy for visual effects
                 self.excess_energy = np.clip(
-                    (normalized_energy - self.threshold_buffer) / self.threshold_buffer,
-                    -1.0,
-                    1.0,
+                    (normalized_energy - adjusted_threshold) / max(adjusted_threshold, 0.0001),
+                    0.0,
+                    5.0,  # Increased max excess energy
                 )
+                # logger.info(f"🎵 BEAT DETECTED! Energy: {normalized_energy:.4f}, Threshold: {adjusted_threshold:.4f}, "
+                #          f"Excess: {self.excess_energy:.3f}, Ratio: {energy_ratio:.2f}")
                 return True
+                
             return False
 
         except Exception as e:
             logger.error(f"Error in beat detection: {e}")
             return False
 
-    def _audio_thread(self):
+    def _audio_thread(self) -> None:
         """Main audio processing thread"""
         while not self.stop_event.is_set():
 
@@ -863,7 +913,7 @@ class AudioProcessor:
                 sleep(0.1)
 
     @benchmark("audio_get_data")
-    def get_audio_data(self, timeout=0.1):
+    def get_audio_data(self, timeout: float = 0.1) -> Optional[AudioData]:
         """Get processed audio data from the queue"""
         try:
             data = self.audio_queue.get(timeout=timeout)
@@ -871,25 +921,46 @@ class AudioProcessor:
         except Empty:
             return None
 
-    def set_beat_sensitivity(self, sensitivity):
+    def set_beat_sensitivity(self, sensitivity: float) -> None:
         with self.state_lock:
             self.beat_sensitivity = max(0.1, min(2.0, sensitivity))
 
-    def get_beat_sensitivity(self):
+    def get_beat_sensitivity(self) -> float:
         with self.state_lock:
             return self.beat_sensitivity
 
-    def increase_beat_sensitivity(self):
+    def increase_beat_sensitivity(self) -> None:
         current = self.get_beat_sensitivity()
         self.set_beat_sensitivity(current + 0.02)
         logger.debug(f"beat_sensitivity: {self.get_beat_sensitivity()}")
 
-    def decrease_beat_sensitivity(self):
+    def decrease_beat_sensitivity(self) -> None:
         current = self.get_beat_sensitivity()
         self.set_beat_sensitivity(current - 0.02)
         logger.debug(f"pulse_intensity = {self.get_beat_sensitivity()}")
 
-    def set_chunk_size(self, new_chunk_size):
+    def reset_beat_detection(self) -> None:
+        """Reset beat detection buffers - useful for debugging"""
+        with self.state_lock:
+            self.energy_buffer = 0.0
+            self.threshold_buffer = 0.02
+            self.last_beat_time = time()
+            logger.info("Beat detection buffers reset")
+
+    def get_beat_detection_stats(self) -> Dict[str, Any]:
+        """Get current beat detection statistics for debugging"""
+        with self.state_lock:
+            return {
+                'energy_buffer': getattr(self, 'energy_buffer', 0.0),
+                'threshold_buffer': getattr(self, 'threshold_buffer', 0.0),
+                'beat_sensitivity': self.beat_sensitivity,
+                'min_beat_interval': self.min_beat_interval,
+                'mel_transform_enabled': self.mel_transform_enabled,
+                'time_since_last_beat': time() - self.last_beat_time,
+                'beat_count': self.beat_count
+            }
+
+    def set_chunk_size(self, new_chunk_size: int) -> None:
         """Change the chunk size and restart the audio stream"""
         if new_chunk_size == self.chunk_size:
             return  # No change needed
@@ -922,11 +993,11 @@ class AudioProcessor:
 
         logger.debug(f"Audio buffer size changed to {new_chunk_size}")
 
-    def get_chunk_size(self):
+    def get_chunk_size(self) -> int:
         """Get the current chunk size"""
         return self.chunk_size
 
-    def set_sample_rate(self, new_sample_rate):
+    def set_sample_rate(self, new_sample_rate: int) -> None:
         """Change the sample rate and restart the audio stream"""
         if new_sample_rate == self.sample_rate:
             return  # No change needed
@@ -954,7 +1025,7 @@ class AudioProcessor:
 
         logger.debug(f"Sample rate changed to {new_sample_rate}")
 
-    def set_device(self, new_device):
+    def set_device(self, new_device: int) -> None:
         """Change the audio input device and restart the audio stream"""
         if new_device == self.device:
             return  # No change needed
@@ -982,35 +1053,7 @@ class AudioProcessor:
 
         logger.debug(f"Audio device changed to {new_device}")
 
-    def set_device(self, new_device):
-        """Change the audio input device and restart the audio stream"""
-        if new_device == self.device:
-            return  # No change needed
-
-        logger.debug(f"Changing audio device from {self.device} to {new_device}")
-
-        # Stop current processing
-        was_running = self.running
-        if was_running:
-            self.stop()
-
-        # Update device
-        self.device = new_device
-
-        # Recreate audio stream with new device
-        try:
-            self.stream = self._create_audio_stream()
-        except Exception as e:
-            logger.error(f"Error creating audio stream with new device: {e}")
-            self.stream = DummyStream(self.chunk_size)
-
-        # Restart if it was running before
-        if was_running:
-            self.start()
-
-        logger.debug(f"Audio device changed to {new_device}")
-
-    def get_sample_rate(self):
+    def get_sample_rate(self) -> int:
         """Get the current sample rate"""
         return self.sample_rate
 
@@ -1018,16 +1061,16 @@ class AudioProcessor:
 class DummyAudioProcessor:
     """A dummy audio processor that provides minimal audio data for testing or when audio is disabled"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.running = False
 
-    def start(self):
+    def start(self) -> None:
         self.running = True
 
-    def stop(self):
+    def stop(self) -> None:
         self.running = False
 
-    def get_audio_data(self):
+    def get_audio_data(self) -> AudioData:
         # Return minimal audio data structure
         import numpy as np
 
@@ -1036,33 +1079,41 @@ class DummyAudioProcessor:
             fft_data=np.zeros(513),  # 1024//2 + 1 = 513 for FFT
             amplitude=0.1,  # Small amplitude for minimal visual activity
             beat_detected=False,
+            beat_count=0,
             frequency_balance=0.0,
             energy=0.1,
             warmth=0.5,
+            last_beat_time=time(),
         )
 
-    def decrease_beat_sensitivity(self):
+    def decrease_beat_sensitivity(self) -> None:
         pass
 
-    def increase_beat_sensitivity(self):
+    def increase_beat_sensitivity(self) -> None:
         pass
 
-    def set_beat_sensitivity(self, value):
+    def set_beat_sensitivity(self, value: float) -> None:
         pass
 
-    def get_chunk_size(self):
+    def get_chunk_size(self) -> int:
         return 256  # Default chunk size
 
-    def set_chunk_size(self, value):
+    def set_chunk_size(self, value: int) -> None:
         pass
 
-    def get_sample_rate(self):
+    def get_sample_rate(self) -> int:
         return 44100  # Default sample rate
 
-    def set_sample_rate(self, value):
+    def set_sample_rate(self, value: int) -> None:
         pass
 
-    def calculate_fft(self, audio_data, normalize=True, apply_window=True, logarithmic=True):
+    def calculate_fft(
+        self, 
+        audio_data: np.ndarray, 
+        normalize: bool = True, 
+        apply_window: bool = True, 
+        logarithmic: bool = True
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Dummy FFT calculation that returns empty data"""
         import numpy as np
 
