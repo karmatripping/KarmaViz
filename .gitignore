@@ -8,3 +8,5 @@ karmaviz.egg-info/
 karmaviz.modules.egg-info/
 codebase_index.db
 .zencoder/
+presets/*
+presets/
