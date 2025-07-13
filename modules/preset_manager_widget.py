@@ -518,6 +518,10 @@ File: {os.path.basename(filepath)}"""
             success = self.preset_manager.load_quick_preset(visualizer, slot)
             if success:
                 logger.debug(f"Quick preset {slot} shaders loaded successfully!")
+                # Update config menu to reflect the loaded preset settings
+                if self.config_menu and hasattr(self.config_menu, 'inherit_from_visualizer'):
+                    self.config_menu.inherit_from_visualizer(visualizer)
+                    logger.debug(f"Config menu updated with quick preset {slot} settings")
             else:
                 QMessageBox.warning(self, "Quick Preset", f"Failed to load quick preset {slot} shaders.")
         else:
@@ -588,6 +592,10 @@ File: {os.path.basename(filepath)}"""
             success = self.preset_manager.apply_preset(visualizer, preset_info)
             if success:
                 logger.debug(f"Preset '{preset_info.name}' shaders loaded successfully!")
+                # Update config menu to reflect the loaded preset settings
+                if self.config_menu and hasattr(self.config_menu, 'inherit_from_visualizer'):
+                    self.config_menu.inherit_from_visualizer(visualizer)
+                    logger.debug(f"Config menu updated with preset '{preset_info.name}' settings")
             else:
                 logger.warning(f"Failed to load preset '{preset_info.name}' shaders.")
         else:
