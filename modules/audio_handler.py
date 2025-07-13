@@ -945,7 +945,8 @@ class AudioProcessor:
             self.energy_buffer = 0.0
             self.threshold_buffer = 0.02
             self.last_beat_time = time()
-            logger.info("Beat detection buffers reset")
+            self.beat_count = 1
+            logger.info("Beat detection buffers / beat count reset")
 
     def get_beat_detection_stats(self) -> Dict[str, Any]:
         """Get current beat detection statistics for debugging"""
