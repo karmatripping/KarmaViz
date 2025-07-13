@@ -2,6 +2,7 @@ import numpy as np
 
 CHUNK = 1024  
 DATA_FORMAT = np.float32
+DATA_FORMAT_STR = "f4"
 CHANNELS = 1  # Mono audio for single centered waveform
 RATE = 44100    
 
