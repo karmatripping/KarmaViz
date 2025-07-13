@@ -117,8 +117,6 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                     raise SystemExit
                 elif event.type == pygame.VIDEORESIZE:
                     new_size = event.dict["size"]
-                    log_debug(f"==> VIDEORESIZE event caught: {new_size}")  # Specific log
-
                     # Don't recreate the display mode - just update the viewport
                     # This prevents window jumping during resize
                     if not fullscreen:  # Only handle resize if NOT in fullscreen
@@ -129,7 +127,6 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                         # Update the OpenGL viewport directly without recreating the window
                         vis.ctx.viewport = vis.viewport
 
-                        log_debug(f"Updated viewport to: {vis.viewport}")
                     continue  # Skip other event processing for this frame
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_q:
@@ -167,6 +164,10 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                                 success = preset_manager.load_quick_preset(vis, slot)
                                 if success:
                                     log_debug(f"Quick preset {slot} loaded!")
+                                    # Update config menu to reflect the loaded preset settings
+                                    if config_menu and hasattr(config_menu, 'inherit_from_visualizer'):
+                                        config_menu.inherit_from_visualizer(vis)
+                                        log_debug(f"Config menu updated with quick preset {slot} settings")
                                 else:
                                     log_error(f"Failed to load quick preset {slot}")
                             else:
@@ -438,6 +439,10 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
                     elif event.key == pygame.K_KP7:  # Numpad 7
                         audio_processor.decrease_beat_sensitivity()
                         update_config_menu_setting("beat_sensitivity", audio_processor.get_beat_sensitivity())
+                    elif event.key == pygame.K_KP0:  # Numpad 8
+                        if hasattr(audio_processor, 'reset_beat_detection_buffers'):
+                            audio_processor.reset_beat_detection_buffers()
+                            log_info("🔄 Beat detection buffers reset")
                     elif event.key == pygame.K_KP9:  # Numpad 9
                         audio_processor.increase_beat_sensitivity()
                         update_config_menu_setting("beat_sensitivity", audio_processor.get_beat_sensitivity())
@@ -569,7 +574,9 @@ def run_main_loop(vis, config_menu, audio_processor, _ctx, preset_manager=None):
     except SystemExit:
         log_info("Exiting gracefully...")
     except Exception as e:
+        import traceback
         log_error(f"Error in main loop: {e}")
+        traceback.print_exc()
 
     finally:
         log_info("Cleaning up main loop...")
@@ -1090,6 +1097,8 @@ def main():
                     setattr(vis, "pulse_intensity_multiplier", v),
                     setattr(vis, "pulse_intensity", v),
                 ],
+                "pulse_attack_time": lambda v: vis.set_pulse_attack_time(v),
+                "pulse_smoothing_factor": lambda v: vis.set_pulse_smoothing_factor(v),
                 "trail_intensity": lambda v: setattr(vis, "trail_intensity", v),
                 "glow_intensity": lambda v: setattr(vis, "glow_intensity", v),
                 "palette_speed": lambda v: setattr(vis, "palette_rotation_speed", v),
@@ -1137,7 +1146,7 @@ def main():
                     vis, "color_transition_smoothness", v
                 ),
                 "transitions_paused": lambda v: setattr(vis, "transitions_paused", v),
-                "beats_per_change": lambda v: setattr(vis, "beats_per_change", v),
+                "beats_per_change": lambda v: setattr(vis, "beats_per_change", int(v)),
                 "waveform_scale": lambda v: setattr(vis, "waveform_scale", v),
                 "gpu_waveform_enabled": lambda v: setattr(
                     vis, "gpu_waveform_enabled", v
@@ -1147,9 +1156,12 @@ def main():
                 "bounce_intensity": lambda v: setattr(
                     vis, "bounce_intensity_multiplier", v
                 ),
-                "fullscreen_resolution": lambda v: setattr(
-                    vis, "selected_fullscreen_resolution", v
-                ),
+                "fullscreen_resolution": lambda v: [
+                    setattr(vis, "selected_fullscreen_resolution", v),
+                    globals().update({"selected_fullscreen_res_str": v}),
+                    setattr(sys.modules['modules.karmaviz'], 'selected_fullscreen_res_str', v),
+                    log_debug(f"Updated fullscreen resolution to: {v}")
+                ],
                 "anti_aliasing": lambda v: vis.update_anti_aliasing(v),
                 "selected_palette": lambda v: vis.set_selected_palette(v),
 
@@ -1176,10 +1188,22 @@ def main():
                     try:
                         config_menu.callbacks[setting_name](value)
                         applied_count += 1
+                        # Special logging for fullscreen resolution
+                        if setting_name == "fullscreen_resolution":
+                            log_debug(f"✅ Applied fullscreen resolution: {value}")
+                            log_debug(f"   Visualizer attribute: {getattr(vis, 'selected_fullscreen_resolution', 'NOT SET')}")
                     except Exception as e:
                         log_error(f"Warning: Failed to apply setting {setting_name}={value}: {e}")
 
             log_debug(f"Applied {applied_count} initial settings to visualizer")
+            
+            # Verify fullscreen resolution is properly set
+            current_resolution = getattr(vis, 'selected_fullscreen_resolution', 'NOT SET')
+            config_resolution = settings.get('fullscreen_resolution', 'NOT SET')
+            log_debug(f"🔍 Fullscreen resolution verification:")
+            log_debug(f"   Config menu setting: {config_resolution}")
+            log_debug(f"   Visualizer attribute: {current_resolution}")
+            log_debug(f"   Match: {current_resolution == config_resolution}")
 
         apply_initial_settings()
 
