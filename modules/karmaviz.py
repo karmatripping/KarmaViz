@@ -3,8 +3,7 @@ import numpy as np
 import sys
 from PyQt5.QtWidgets import QApplication
 
-# Lazy import audio modules to avoid early sounddevice issues
-# from modules.audio_handler import AudioProcessor  # Moved to lazy import
+from modules.audio_handler import AudioProcessor, AudioData
 
 qt_app = QApplication(sys.argv)
 
@@ -18,11 +17,12 @@ from moderngl import (
     SRC_ALPHA,
     ONE_MINUS_SRC_ALPHA,
     TRIANGLE_FAN,
+    Framebuffer,  # Add this import
 )
 
 from random import randint, choice
 from collections import deque
-from typing import Dict
+from typing import Deque, Dict, Any, List, Optional, Tuple
 
 import os
 from time import sleep, time
@@ -53,24 +53,9 @@ except ImportError:
     logger.error("Warning: Cython color_ops module not found. Using slower numpy version.")
     apply_color_parallel = None
 
-from config.constants import WIDTH, HEIGHT, CHUNK, RATE, DATA_FORMAT
+from config.constants import WIDTH, HEIGHT, CHUNK, RATE, DATA_FORMAT, DATA_FORMAT_STR
 
 fps = 60
-
-
-def get_moderngl_dtype_string(numpy_dtype):
-    """Convert numpy dtype to ModernGL format string
-
-    ModernGL expects string format specifiers for texture dtypes.
-    We'll standardize on float32 for compatibility.
-    """
-    # Always use float32 for textures regardless of input dtype
-    # This ensures compatibility and avoids precision issues
-    return "f4"
-
-
-# Get the ModernGL format string for the current DATA_FORMAT
-TEXTURE_DTYPE_STR = get_moderngl_dtype_string(DATA_FORMAT)
 
 # Force SDL to use X11 if not already set (prevents Wayland crashes)
 if os.environ.get("SDL_VIDEODRIVER") != "x11":
@@ -113,13 +98,17 @@ class KarmaVisualizer:
     - User interaction and configuration
     """
 
+    _config_menu_ref: Any  # Reference to config menu for settings sync
+    feedback_fbo: Optional[Framebuffer]
+    main_fbo: Optional[Framebuffer]
+
     def __init__(
         self,
-        window_size: tuple[int, int],
-        audio_processor,
-        ctx,
-        compiled_programs,
-        logo_surface=None,
+        window_size: Tuple[int, int],
+        audio_processor: AudioProcessor,
+        ctx: Any,
+        compiled_programs: Dict[str, Any],
+        logo_surface: Optional[pygame.Surface] = None,
     ):
         """Initialize the KarmaVisualizer with required components.
 
@@ -130,7 +119,7 @@ class KarmaVisualizer:
             compiled_programs: Pre-compiled shader programs (can be None for auto-compilation)
             logo_surface: Optional logo surface for initial display
         """
-        self.audio_processor = audio_processor
+        self.audio_processor: AudioProcessor = audio_processor
 
         self.window_size = window_size
         # Unpack for local use, ensures textures/buffers match window
@@ -215,6 +204,13 @@ class KarmaVisualizer:
         self.bounce_enabled = False
         self.bounce_height = 0.2
 
+        # Smooth pulse effect state tracking
+        self.pulse_attack_time = 0.08  # Attack phase duration in seconds (80ms for smooth onset)
+        self.pulse_target_intensity = 0.0  # Target intensity for smooth transitions
+        self.pulse_current_intensity = 0.0  # Current smoothed intensity
+        self.pulse_beat_start_time = 0.0  # When the current pulse beat started
+        self.pulse_smoothing_factor = 0.15  # How quickly to approach target intensity
+
         # Removed pattern variables - now using stackable warp maps
 
         vertices = np.array(
@@ -236,14 +232,14 @@ class KarmaVisualizer:
                 0.0,
                 1.0,
             ],
-            dtype=DATA_FORMAT,
+            dtype=np.float32,
         )
 
         self.vbo = self.ctx.buffer(vertices.tobytes())
 
         # GPU waveform rendering system (always enabled)
-        self.waveform_texture = None  # 1D texture for waveform data
-        self.waveform_buffer = None   # Buffer for waveform data
+        self.waveform_texture = self.ctx.texture((128, 1), 1, dtype=DATA_FORMAT_STR)  # 1D texture for waveform data    
+        self.waveform_buffer = np.zeros(128, dtype=np.float32)   # Buffer for waveform data
 
         # Initialize waveform manager and compile initial GPU waveform shader
         self.current_waveform_name = 'normal'
@@ -291,22 +287,49 @@ class KarmaVisualizer:
             # Compile main shader
             logger.debug("Compiling main shader...")
             try:
+                logger.debug("Selecting random warp map...")
                 self.cycle_to_random_warp_map()
+                logger.debug(f"Selected warp map: {self.active_warp_map_name}")
+                
+                logger.debug("Cycling GPU waveform...")
                 self.cycle_gpu_waveform()
+                logger.debug(f"Selected waveform: {self.current_waveform_name}")
+                
+                logger.debug("Building fragment shader...")
                 fragment_shader_with_waveform = (
                     self.shader_manager.build_full_fragment_shader(
                         waveform_name=self.current_waveform_name,
                         warp_map_name=self.active_warp_map_name,
                     )
                 )
+                logger.debug("Creating program with shaders...")
                 self.program = self.ctx.program(
                     vertex_shader=VERTEX_SHADER,
                     fragment_shader=fragment_shader_with_waveform,
                 )
-                logger.debug(f"Main shader compiled with waveform: {self.current_waveform_name}")
+                logger.debug(f"Main shader compiled successfully with waveform: {self.current_waveform_name}")
             except Exception as e:
                 logger.error(f"Failed to compile main shader: {e}")
                 raise RuntimeError("Main shader compilation failed")
+
+        # Add debug logging for program uniforms
+        try:
+            logger.debug("Checking program uniforms...")
+            for name in self.program:
+                logger.debug(f"Found uniform: {name}")
+        except Exception as e:
+            logger.error(f"Error checking program uniforms: {e}")
+
+        # Add debug logging for vertex array setup
+        try:
+            logger.debug("Setting up vertex array...")
+            self.vao = self.ctx.vertex_array(
+                self.program, [(self.vbo, "2f 2f", "in_position", "in_texcoord")]
+            )
+            logger.debug("Vertex array setup complete")
+        except Exception as e:
+            logger.error(f"Error setting up vertex array: {e}")
+            raise
 
         # Use pre-compiled spectrogram program or compile fallback
         if compiled_programs and "spectrogram" in compiled_programs:
@@ -350,21 +373,21 @@ class KarmaVisualizer:
                     (tex_width, tex_height),
                     3,
                     samples=self.anti_aliasing_samples,
-                    dtype=TEXTURE_DTYPE_STR,
+                    dtype=DATA_FORMAT_STR,
                 ),
                 self.ctx.texture(
                     (tex_width, tex_height),
                     3,
                     samples=self.anti_aliasing_samples,
-                    dtype=TEXTURE_DTYPE_STR,
+                    dtype=DATA_FORMAT_STR,
                 ),
             ]
             logger.debug("Created main textures with {self.anti_aliasing_samples}x multisampling")
         except Exception as e:
             # Fallback to non-multisampled textures
             self.textures = [
-                self.ctx.texture((tex_width, tex_height), 3, dtype=TEXTURE_DTYPE_STR),
-                self.ctx.texture((tex_width, tex_height), 3, dtype=TEXTURE_DTYPE_STR),
+                self.ctx.texture((tex_width, tex_height), 3, dtype=DATA_FORMAT_STR),
+                self.ctx.texture((tex_width, tex_height), 3, dtype=DATA_FORMAT_STR),
             ]
             logger.error(f"Multisampling not supported for textures, using standard textures: {e}")
             # Disable multisampling for consistency
@@ -374,7 +397,7 @@ class KarmaVisualizer:
 
         # Feedback texture doesn't need multisampling
         self.feedback_texture = self.ctx.texture(
-            (tex_width, tex_height), 3, dtype=TEXTURE_DTYPE_STR
+            (tex_width, tex_height), 3, dtype=DATA_FORMAT_STR
         )
         self.feedback_fbo = self.ctx.framebuffer(
             color_attachments=[self.feedback_texture]
@@ -383,7 +406,7 @@ class KarmaVisualizer:
         # Create a separate overlay texture for logo and other overlays
         # This texture will never be part of the feedback loop
         self.overlay_texture = self.ctx.texture(
-            (tex_width, tex_height), 4, dtype=TEXTURE_DTYPE_STR  # RGBA for transparency
+            (tex_width, tex_height), 4, dtype=DATA_FORMAT_STR  # RGBA for transparency
         )
         self.overlay_fbo = self.ctx.framebuffer(
             color_attachments=[self.overlay_texture]
@@ -391,10 +414,6 @@ class KarmaVisualizer:
 
         self.main_fbo = self.ctx.framebuffer(
             color_attachments=[self.textures[0]]
-        )
-
-        self.vao = self.ctx.vertex_array(
-            self.program, [(self.vbo, "2f 2f", "in_position", "in_texcoord")]
         )
 
         self.time = 0.0
@@ -438,8 +457,6 @@ class KarmaVisualizer:
 
         # Beat-based transition system
         self.beats_per_change = 16  # Default beats per change
-        self.beat_counter = 0  # Count beats for transitions
-        self.beat_detected = False
         self.transitions_paused = False  # Can pause automatic transitions
 
         # Get available warp maps
@@ -454,7 +471,10 @@ class KarmaVisualizer:
                 random_key = choice(warp_map_keys)
                 random_warp_map = self.warp_map_manager.get_warp_map(random_key)
                 self.select_random_warp_map(random_key)
-                logger.debug(f"Randomly selected warp map on startup: {random_warp_map.name} (key: {random_key})")
+                if random_warp_map:
+                    logger.debug(f"Randomly selected warp map on startup: {random_warp_map.name} (key: {random_key})")
+                else:
+                    logger.debug(f"Failed to load warp map for key: {random_key}")
 
         # Palette selection settings
         self.palette_mode = "Mood-based"  # "Mood-based", "Fixed", "Random"
@@ -495,14 +515,23 @@ class KarmaVisualizer:
         self.invert_rotation_direction = False
         self.rotation_mode = 0
         self.pulse_enabled = False
+        
+        # Initialize smooth pulse state variables
+        self.pulse_target_intensity = 0.0
+        self.pulse_current_intensity = 0.0
+        self.pulse_beat_start_time = 0.0
 
         # Single centered waveform (no stereo separation)
 
         # Beat tracking
+        self.beat_detected = False
         self.last_beat_time = 0.0
-        self.beat_interval = 0.2
         self.beats_since_last_change = 0  # Initialize beat counter
         self.excess_energy = 0.0
+        self.beat_interval = 0.5  # Default beat interval (120 BPM = 0.5 seconds per beat)
+        self.previous_beat_time = 0.0  # Track previous beat for interval calculation
+        self.beat_interval_history = []  # Store recent beat intervals for smoothing
+        self.max_beat_history = 8  # Number of recent intervals to average
 
         # Effect intensities & modes
         self.pulse_intensity = 1.0
@@ -510,6 +539,8 @@ class KarmaVisualizer:
         self.trail_intensity = 0.0
         self.glow_intensity = 0.9
         self.glow_radius = 0.065  # Default glow radius (matches previous hardcoded value)
+        
+        
         self.kaleidoscope_sections = 10
         self.smoke_intensity = 0.0
         self.warp_first_enabled = False  # New: Toggle warp/symmetry order
@@ -587,7 +618,7 @@ class KarmaVisualizer:
         # Initialization complete - allow normal operations
         self._initializing = False
 
-    def initialize_gpu_waveform(self):
+    def initialize_gpu_waveform(self) -> None:
         """Initialize GPU waveform rendering system"""
         try:
             # Get actual chunk size from audio processor
@@ -604,11 +635,11 @@ class KarmaVisualizer:
             waveform_samples = max(128, actual_chunk_size)
             logger.debug(f"🔍 GPU Waveform Init - Using waveform_samples: {waveform_samples}")
             
-            self.waveform_buffer = np.zeros(waveform_samples, dtype=DATA_FORMAT)
+            self.waveform_buffer = np.zeros(waveform_samples, dtype=np.float32)
 
             # Create 1D texture using 2D texture with height=1 (ModernGL doesn't support true 1D textures)
             self.waveform_texture = self.ctx.texture(
-                (waveform_samples, 1), 1, dtype=TEXTURE_DTYPE_STR
+                (waveform_samples, 1), 1, dtype=DATA_FORMAT_STR
             )
 
             # Set texture parameters for smooth sampling
@@ -618,9 +649,9 @@ class KarmaVisualizer:
 
             # Create frequency data texture for lightning waveform (FFT data)
             fft_samples = 256  # Half of waveform samples for FFT
-            self.fft_buffer = np.zeros(fft_samples, dtype=DATA_FORMAT)
+            self.fft_buffer = np.zeros(fft_samples, dtype=np.float32)
             self.fft_texture = self.ctx.texture(
-                (fft_samples, 1), 1, dtype=TEXTURE_DTYPE_STR
+                (fft_samples, 1), 1, dtype=DATA_FORMAT_STR
             )
             self.fft_texture.filter = (self.ctx.LINEAR, self.ctx.LINEAR)
             self.fft_texture.repeat_x = False
@@ -633,52 +664,8 @@ class KarmaVisualizer:
             raise RuntimeError("GPU waveform system initialization failed")
 
     @benchmark("update_gpu_waveform")
-    def update_gpu_waveform(self, audio_data):
+    def update_gpu_waveform(self, audio_data: AudioData) -> None:
         """Update GPU waveform texture with new audio data"""
-        # Recreate textures if they were released during window resize
-        if self.waveform_texture is None:
-            try:
-                logger.debug("Recreating GPU waveform textures after resize...")
-
-                # Get actual chunk size from audio processor
-                actual_chunk_size = (
-                    self.audio_processor.get_chunk_size()
-                    if hasattr(self.audio_processor, "get_chunk_size")
-                    else CHUNK
-                )
-                
-                # Use actual chunk size or minimum of 128 for GPU efficiency
-                waveform_samples = max(128, actual_chunk_size)
-                logger.debug(f"🔍 GPU Waveform Recreate - Using waveform_samples: {waveform_samples}")
-                
-                self.waveform_buffer = np.zeros(waveform_samples, dtype=DATA_FORMAT)
-
-                # Create 1D texture using 2D texture with height=1 (ModernGL doesn't support true 1D textures)
-                self.waveform_texture = self.ctx.texture(
-                    (waveform_samples, 1), 1, dtype=TEXTURE_DTYPE_STR
-                )
-
-                # Set texture parameters for smooth sampling
-                self.waveform_texture.filter = (self.ctx.LINEAR, self.ctx.LINEAR)
-                self.waveform_texture.repeat_x = False
-                self.waveform_texture.repeat_y = False
-
-                # Create frequency data texture for lightning waveform (FFT data)
-                fft_samples = 256  # Half of waveform samples for FFT
-                self.fft_buffer = np.zeros(fft_samples, dtype=DATA_FORMAT)
-                self.fft_texture = self.ctx.texture(
-                    (fft_samples, 1), 1, dtype=TEXTURE_DTYPE_STR
-                )
-                self.fft_texture.filter = (self.ctx.LINEAR, self.ctx.LINEAR)
-                self.fft_texture.repeat_x = False
-                self.fft_texture.repeat_y = False
-
-                logger.debug("GPU waveform textures recreated successfully")
-
-            except Exception as e:
-                logger.error(f"Error recreating GPU waveform textures: {e}")
-                return
-
         try:
             # Extract raw audio data from AudioData object
             raw_audio = audio_data.raw_data
@@ -693,8 +680,72 @@ class KarmaVisualizer:
             # Ensure data is in the correct dtype for processing
             mono_data = np.asarray(mono_data, dtype=DATA_FORMAT)
 
-            # Optimized resampling using vectorized operations
+            # Recreate textures if they were released during window resize
+            if self.waveform_texture is None:
+                try:
+                    logger.debug("Recreating GPU waveform textures after resize...")
+                    # Get actual chunk size from audio processor
+                    actual_chunk_size = (
+                        self.audio_processor.get_chunk_size()
+                        if hasattr(self.audio_processor, "get_chunk_size")
+                        else CHUNK
+                    )
+                    
+                    # Use actual chunk size or minimum of 128 for GPU efficiency
+                    waveform_samples = max(128, actual_chunk_size)
+                    logger.debug(f"🔍 GPU Waveform Recreate - Using waveform_samples: {waveform_samples}")
+                    logger.debug(f"🔍 Current audio data size: {len(mono_data)}")
+                    logger.debug(f"🔍 Current waveform buffer size: {len(self.waveform_buffer) if hasattr(self, 'waveform_buffer') else 'None'}")
+                    
+                    # Ensure waveform buffer matches the new size
+                    if len(self.waveform_buffer) != waveform_samples:
+                        self.waveform_buffer = np.zeros(waveform_samples, dtype=np.float32)
+                        logger.debug(f"Resized waveform buffer to {waveform_samples} samples")
+
+                    # Create 1D texture using 2D texture with height=1
+                    self.waveform_texture = self.ctx.texture(
+                        (waveform_samples, 1), 1, dtype=DATA_FORMAT_STR
+                    )
+                    self.waveform_texture.filter = (self.ctx.LINEAR, self.ctx.LINEAR)
+                    self.waveform_texture.repeat_x = False
+                    self.waveform_texture.repeat_y = False
+
+                    # Create frequency data texture for lightning waveform (FFT data)
+                    fft_samples = 256  # Half of waveform samples for FFT
+                    self.fft_buffer = np.zeros(fft_samples, dtype=np.float32)
+                    self.fft_texture = self.ctx.texture(
+                        (fft_samples, 1), 1, dtype=DATA_FORMAT_STR
+                    )
+                    self.fft_texture.filter = (self.ctx.LINEAR, self.ctx.LINEAR)
+                    self.fft_texture.repeat_x = False
+                    self.fft_texture.repeat_y = False
+
+                    logger.debug("GPU waveform textures recreated successfully")
+
+                except Exception as e:
+                    logger.error(f"Error recreating GPU waveform textures: {e}")
+                    return
+
+            # Check for buffer size mismatch and log detailed information
             if len(mono_data) != len(self.waveform_buffer):
+                logger.debug(f"🔍 Buffer size mismatch detected:")
+                logger.debug(f"   Audio data size: {len(mono_data)}")
+                logger.debug(f"   Waveform buffer size: {len(self.waveform_buffer)}")
+                logger.debug(f"   Audio processor chunk size: {self.audio_processor.get_chunk_size() if hasattr(self.audio_processor, 'get_chunk_size') else 'Unknown'}")
+                
+                # Validate that we have reasonable buffer sizes
+                if len(mono_data) == 0:
+                    logger.warning("⚠️ Empty audio data received, skipping waveform update")
+                    return
+                    
+                if len(self.waveform_buffer) == 0:
+                    logger.warning("⚠️ Empty waveform buffer, reinitializing...")
+                    # Reinitialize with current audio data size
+                    actual_chunk_size = len(mono_data)
+                    waveform_samples = max(128, actual_chunk_size)
+                    self.waveform_buffer = np.zeros(waveform_samples, dtype=np.float32)
+                    logger.debug(f"Reinitialized waveform buffer to {waveform_samples} samples")
+                
                 # Use more efficient resampling with pre-computed indices
                 # Cache indices based on both input and output lengths to handle chunk size changes
                 cache_key = (len(mono_data), len(self.waveform_buffer))
@@ -702,6 +753,7 @@ class KarmaVisualizer:
                     self._resample_indices = np.linspace(0, len(mono_data) - 1, len(self.waveform_buffer), dtype=np.int32)
                     self._resample_weights = self._resample_indices - self._resample_indices.astype(np.int32)
                     self._resample_cache_key = cache_key
+                    logger.debug(f"🔄 Updated resampling cache for {len(mono_data)} -> {len(self.waveform_buffer)}")
 
                 # Fast linear interpolation using pre-computed indices
                 idx_floor = self._resample_indices.astype(np.int32)
@@ -731,7 +783,7 @@ class KarmaVisualizer:
 
             # Upload pre-calculated FFT data for lightning waveform
             if hasattr(self, "fft_texture") and self.fft_texture is not None:
-                # Use pre-calculated FFT data from AudioData object (already logarithmically scaled)
+                # Use pre-calculated FFT data from AudioData object
                 fft_data = audio_data.fft_data
 
                 # Optimized FFT resampling
@@ -766,8 +818,9 @@ class KarmaVisualizer:
 
         except Exception as e:
             logger.error(f"Error updating GPU waveform: {e}")
+            # Don't raise the exception - allow visualization to continue without waveform
 
-    def load_logo_texture(self):
+    def load_logo_texture(self) -> None:
         """Load the KarmaViz logo texture for silence display with proper transparency and enhanced anti-aliasing"""
         try:
             logger.debug(f"Loading logo texture...")
@@ -815,7 +868,7 @@ class KarmaVisualizer:
             # Note: Logo texture cannot use multisampling because we need to write data directly to it
             # ModernGL doesn't allow writing to multisampled textures
             self.logo_texture = self.ctx.texture(
-                self.logo_size, 4, dtype=TEXTURE_DTYPE_STR
+                self.logo_size, 4, dtype=DATA_FORMAT_STR
             )
             logger.debug("Logo texture created (no MSAA - required for direct write): size={self.logo_size}")
             self.logo_texture.write(logo_rgba.tobytes())
@@ -849,7 +902,7 @@ class KarmaVisualizer:
             self.logo_texture = None
             self.logo_size = (0, 0)
 
-    def check_gl_setup(self):
+    def check_gl_setup(self) -> None:
         # Reinitialize ModernGL context
         try:
             self.ctx = create_context()
@@ -886,7 +939,7 @@ class KarmaVisualizer:
 
             # Recreate textures
             self.textures = [
-                self.ctx.texture((WIDTH, HEIGHT), 3, dtype=TEXTURE_DTYPE_STR)
+                self.ctx.texture((WIDTH, HEIGHT), 3, dtype=DATA_FORMAT_STR)
                 for _ in range(2)
             ]
             self.clear_texture()
@@ -894,7 +947,7 @@ class KarmaVisualizer:
             logger.error(f"Error reinitializing ModernGL context: {e}")
             raise  # Critical error if context fails
 
-    def clear_texture(self):
+    def clear_texture(self) -> None:
         # For multisampled textures, we need to clear using framebuffer operations
         # instead of writing directly to the texture
 
@@ -931,7 +984,7 @@ class KarmaVisualizer:
         self.ctx.enable(BLEND)
         self.ctx.blend_func = SRC_ALPHA, ONE_MINUS_SRC_ALPHA
     @benchmark("analyze_mood")
-    def analyze_mood(self, audio_data):
+    def analyze_mood(self, audio_data: np.ndarray) -> Dict[str, float]:
         try:
             # Simple RMS energy calculation
             # Use numpy for efficient vectorized operations
@@ -969,7 +1022,7 @@ class KarmaVisualizer:
             logger.debug(f"Mood analysis error: {e}")
             return self.current_mood
 
-    def lerp_color(self, color1, color2, t):
+    def lerp_color(self, color1: Tuple[int, int, int], color2: Tuple[int, int, int], t: float) -> Tuple[int, int, int]:
         """Linear interpolation between two RGB colors using optimized numpy operations"""
         t = np.clip(t, 0.0, 1.0)
 
@@ -992,7 +1045,7 @@ class KarmaVisualizer:
 
         return tuple(temp['result_arr'].astype(np.int32))
 
-    def lerp_palette(self, palette1, palette2, t):
+    def lerp_palette(self, palette1: List[Tuple[int, int, int]], palette2: List[Tuple[int, int, int]], t: float) -> List[List[int]]:
         """Linear interpolation between two palettes using optimized vectorized operations"""
         t = np.clip(t, 0.0, 1.0)
 
@@ -1021,11 +1074,11 @@ class KarmaVisualizer:
 
         return cache['result'].astype(np.int32).tolist()
 
-    def smooth_color_transition(self, current_color, target_color, smoothness=0.1):
+    def smooth_color_transition(self, current_color: Tuple[int, int, int], target_color: Tuple[int, int, int], smoothness: float = 0.1) -> Tuple[int, int, int]:
         """Smooth exponential interpolation between colors"""
         return self.lerp_color(current_color, target_color, smoothness)
 
-    def get_mood_palette(self, mood):
+    def get_mood_palette(self, mood: Dict[str, float]) -> List[Tuple[int, int, int]]:
         """Get a palette based on current palette mode and settings"""
         try:
             if self.palette_mode == "Fixed" and self.fixed_palette:
@@ -1050,12 +1103,12 @@ class KarmaVisualizer:
                 return [(255, 0, 0), (255, 100, 0), (255, 255, 0), (0, 255, 0),
                        (0, 100, 255), (150, 0, 255), (255, 50, 0)]
 
-    def set_palette_mode(self, mode):
+    def set_palette_mode(self, mode: str) -> None:
         """Set the palette selection mode"""
         self.palette_mode = mode
         logger.debug(f"Palette mode set to: {mode}")
 
-    def set_selected_palette(self, palette_name):
+    def set_selected_palette(self, palette_name: str) -> None:
         """Set the selected palette by name with smooth transition"""
         self.selected_palette_name = palette_name
 
@@ -1084,19 +1137,43 @@ class KarmaVisualizer:
                 self.palette_mode = "Mood-based"
                 self.fixed_palette = None
 
-    def _start_palette_transition(self, new_palette):
+    def _start_palette_transition(self, new_palette: List[Tuple[int, int, int]]) -> None:
         """Start a smooth transition to a new palette"""
         if new_palette != self.target_palette:
             self.target_palette = new_palette
             self.palette_transition_progress = 0.0
 
     @benchmark("draw_waveform")
-    def draw_waveform(self, color):
+    def draw_waveform(self, color: Tuple[int, int, int]) -> None:
         audio_data = self.audio_processor.get_audio_data()
 
         if not audio_data:  # Check if audio_data is None
             # Handle case where no audio data is available
             return  # Exit early if no audio
+
+        # Update beat tracking state by comparing timestamps
+        if audio_data.last_beat_time > self.last_beat_time:
+            self.beat_detected = True
+            
+            # Calculate beat interval for pulse effects
+            if self.last_beat_time > 0.0:  # Only calculate if we have a previous beat
+                current_interval = audio_data.last_beat_time - self.last_beat_time
+                
+                # Only use reasonable intervals (between 0.2s and 2.0s, i.e., 30-300 BPM)
+                if 0.2 <= current_interval <= 2.0:
+                    self.beat_interval_history.append(current_interval)
+                    
+                    # Keep only recent intervals for smoothing
+                    if len(self.beat_interval_history) > self.max_beat_history:
+                        self.beat_interval_history.pop(0)
+                    
+                    # Calculate smoothed beat interval
+                    if self.beat_interval_history:
+                        self.beat_interval = sum(self.beat_interval_history) / len(self.beat_interval_history)
+            
+            self.last_beat_time = audio_data.last_beat_time
+        else:
+            self.beat_detected = False
 
         # Optimized amplitude calculation using vectorized operations
         raw_data = np.asarray(audio_data.raw_data, dtype=DATA_FORMAT)
@@ -1109,14 +1186,16 @@ class KarmaVisualizer:
         if self.show_spectrogram_overlay:
             self.update_spectrogram_data(audio_data.raw_data)
 
-        self.beat_detected = audio_data.beat_detected
-
         # Handle pulse effect on beat detection regardless of transitions
         if self.beat_detected:
-            # Update pulse intensity based on beat
-            self.pulse_intensity = (
+            # Calculate target pulse intensity based on beat
+            target_intensity = (
                 0.1 + self.audio_processor.excess_energy + self.smoothed_amplitude
             ) * self.pulse_intensity_multiplier
+            
+            # Set target for smooth transition instead of immediate jump
+            self.pulse_target_intensity = target_intensity
+            self.pulse_beat_start_time = time()
 
         # Handle bounce effect on beat detection
         if self.beat_detected and self.bounce_enabled:
@@ -1124,7 +1203,7 @@ class KarmaVisualizer:
             base_velocity = 1.0  # Much larger base velocity
             self.bounce_velocity = min(
                 12.0,  # Much higher max velocity
-                (
+                float(
                     base_velocity
                     + self.audio_processor.excess_energy * 4.0
                     + self.smoothed_amplitude * 4.0
@@ -1135,20 +1214,37 @@ class KarmaVisualizer:
             self.last_bounce_time = time()
 
         # Handle beat-based pattern transitions (only if not locked by config menu)
-        if self.beat_detected and not self.transitions_paused and not self.warp_map_locked and not self.waveform_locked:
-            self.beat_counter += 1
-            logger.debug(f"🎵 Beat detected: {self.beat_counter} of {self.beats_per_change}")
-            if self.beat_counter >= self.beats_per_change:
-                self.beat_counter = 0
-                self.cycle_to_random_warp_map()
-                logger.debug("🎵 Beat transition: Complete warp map change after {self.beats_per_change} beats")
-                if self.gpu_waveform_random:
+        if self.beat_detected and not self.transitions_paused and not (self.warp_map_locked and self.waveform_locked):
+            logger.debug(f"Beat Count: {audio_data.beat_count} ({audio_data.beat_count % self.beats_per_change} of {self.beats_per_change})")
+            if audio_data.beat_count % int(self.beats_per_change) == 0:
+                logger.debug(f"🎵 Beat transition triggered after {self.beats_per_change} beats - warp_locked: {self.warp_map_locked}, waveform_locked: {self.waveform_locked}")
+                # Only change warp map if not locked
+                if not self.warp_map_locked:
+                    self.cycle_to_random_warp_map()
+                    logger.debug(f"🎵 Beat transition: Complete warp map change after {self.beats_per_change} beats")
+                else:
+                    logger.debug("🔒 Warp map change skipped - locked")
+                # Only change waveform if not locked and random waveforms are enabled
+                if not self.waveform_locked and self.gpu_waveform_random:
                     self.cycle_gpu_waveform()
-                    logger.debug("🎵 Beat transition: Complete waveform change after {self.beats_per_change} beats")
+                    logger.debug(f"🎵 Beat transition: Complete waveform change after {self.beats_per_change} beats")
+                elif self.waveform_locked:
+                    logger.debug("🔒 Waveform change skipped - locked")
+                elif not self.gpu_waveform_random:
+                    logger.debug("🔒 Waveform change skipped - random waveforms disabled")
+                # Always update symmetry if in random mode (not affected by locks)
                 if self.symmetry_mode == -1:
                     self.current_symmetry = randint(0, 10)
                 else:
                     self.current_symmetry = self.symmetry_mode
+        elif self.beat_detected:
+            # Beat detected but transitions are blocked - log why
+            reasons = []
+            if self.transitions_paused:
+                reasons.append("transitions paused")
+            if self.warp_map_locked and self.waveform_locked:
+                reasons.append("both warp map and waveform locked")
+            logger.debug(f"🎵 Beat detected but transitions blocked: {', '.join(reasons)}")
 
         else:
             # Optimized spring physics calculations
@@ -1271,7 +1367,7 @@ class KarmaVisualizer:
         # The actual rendering will happen in the main render() method
 
     @benchmark("render")
-    def render(self):
+    def render(self) -> None:
         try:
             # Process any completed shader compilations
             self.shader_manager.process_shader_compilation_results(
@@ -1303,17 +1399,6 @@ class KarmaVisualizer:
 
             self.fps_counter += 1
             self.fps_timer += frame_time
-
-            if (
-                hasattr(self, "clear_feedback_frames")
-                and self.clear_feedback_frames > 0
-            ):
-                logger.debug(f"Clearing feedback frame{self.clear_feedback_frames}")
-                self.feedback_fbo.use()
-                self.ctx.disable(BLEND)
-                self.ctx.clear(0.0, 0.0, 0.0, 1.0)
-                self.ctx.enable(BLEND)
-                self.clear_feedback_frames -= 1
 
             # Update FPS display every second
             if self.fps_timer >= self.fps_update_interval:
@@ -1382,60 +1467,66 @@ class KarmaVisualizer:
                 self.current_symmetry = self.symmetry_mode
 
             # Apply screen pulse - calculate pulsing effect if enabled
-            pulse_scale = 1.0  # Start with no scaling
-            if self.pulse_enabled and self.pulse_intensity > 0:
+            pulse_scale = 1.0
+            if self.pulse_enabled:
+                # Update smooth pulse intensity with exponential smoothing
+                if self.pulse_target_intensity > self.pulse_current_intensity:
+                    # Attack phase - faster rise
+                    attack_factor = self.pulse_smoothing_factor * 2.0  # Faster attack
+                    self.pulse_current_intensity += (self.pulse_target_intensity - self.pulse_current_intensity) * attack_factor
+                else:
+                    # Decay phase - slower fall for natural feel
+                    decay_factor = self.pulse_smoothing_factor * 0.5  # Slower decay
+                    self.pulse_current_intensity += (self.pulse_target_intensity - self.pulse_current_intensity) * decay_factor
+                
+                # Gradually reduce target intensity over time for natural decay
+                time_since_pulse_beat = current_time - self.pulse_beat_start_time
+                if time_since_pulse_beat > 0.1:  # After 100ms, start reducing target
+                    natural_decay = np.exp(-1.5 * time_since_pulse_beat)  # Gentler decay than before (-1.5 vs -3.0)
+                    self.pulse_target_intensity *= natural_decay
 
-                time_since_beat = current_time - self.audio_processor.last_beat_time
-                beat_interval = self.beat_interval
+                if self.pulse_current_intensity > 0.001:  # Only calculate pulse if there's meaningful intensity
+                    time_since_beat = current_time - self.last_beat_time
+                    beat_interval = self.beat_interval
 
-                # Complete one full pulse cycle based on beat interval
-                cycle_progress = min(1.0, time_since_beat / beat_interval)
+                    # Complete one full pulse cycle based on beat interval
+                    # Add safety check to prevent division by zero
+                    if beat_interval > 0.0:
+                        cycle_progress = min(1.0, time_since_beat / beat_interval)
+                    else:
+                        # Fallback: use a default cycle based on time since beat
+                        cycle_progress = min(1.0, time_since_beat / 0.5)  # Assume 120 BPM default
 
-                # Use cosine wave for smoother bidirectional movement
-                # Cosine starts at 1 and smoothly transitions to -1
-                cos_value = np.cos(cycle_progress * 2 * np.pi)
+                    # Smooth attack phase for the first part of the pulse
+                    time_since_pulse_start = current_time - self.pulse_beat_start_time
+                    if time_since_pulse_start < self.pulse_attack_time:
+                        # Smooth attack using ease-out curve
+                        attack_progress = time_since_pulse_start / self.pulse_attack_time
+                        attack_multiplier = 1.0 - np.power(1.0 - attack_progress, 3.0)  # Cubic ease-out for smooth start
+                    else:
+                        attack_multiplier = 1.0
 
-                # Apply exponential decay for smoother falloff
-                decay = np.exp(-3.0 * time_since_beat)
+                    # Use a gentler wave function that starts from 0 instead of 1
+                    # Sine wave starts at 0 and rises smoothly, unlike cosine which starts at 1
+                    wave_value = np.sin(cycle_progress * np.pi)  # Single sine hump from 0 to 1 to 0
+                    
+                    # Apply smooth attack multiplier
+                    wave_value *= attack_multiplier
 
-                # Combine smooth oscillation with decay
-                pulse_factor = (
-                    self.pulse_intensity
-                    * decay
-                    * (cos_value * 0.5 + 0.5)  # Normalize to 0-1 range
-                )
+                    # Combine smooth oscillation with current intensity
+                    pulse_factor = self.pulse_current_intensity * wave_value
 
-                # Add small baseline pulse (independent of animation speed)
-                baseline = 0.02 * np.sin(current_time * 2)
+                    # Add small baseline pulse (independent of animation speed)
+                    baseline = 0.02 * np.sin(current_time * 2)
 
-                # Combine main pulse with baseline
-                pulse_scale = (
-                    1.0 + (pulse_factor + baseline) * self.pulse_intensity_multiplier
-                )
+                    # Combine main pulse with baseline
+                    pulse_scale = 1.0 + (pulse_factor + baseline) * self.pulse_intensity_multiplier
+                else:
+                    # No meaningful pulse intensity, just use baseline
+                    baseline = 0.02 * np.sin(current_time * 2)
+                    pulse_scale = 1.0 + baseline * self.pulse_intensity_multiplier
 
-            # Optimized kaleidoscope sections calculation
-            # Pre-compute constants for efficiency
-            if not hasattr(self, '_kaleidoscope_constants'):
-                self._kaleidoscope_constants = {
-                    'transition_speed': 0.3,
-                    'min_sections': 8,
-                    'max_sections': 24,
-                    'section_range': 16,  # 24 - 8
-                    'half_range': 8.0,    # section_range / 2
-                    'mid_sections': 16    # (8 + 24) / 2
-                }
-
-            constants = self._kaleidoscope_constants
-
-            # Optimized oscillation calculation using pre-computed values
-            sin_value = np.sin(self.time * constants['transition_speed'])
-            # Direct calculation avoiding division: sin ranges from -1 to 1,
-            # so (sin + 1) * half_range + min gives us the range we want
-            self.kaleidoscope_sections = int(
-                constants['mid_sections'] + sin_value * constants['half_range']
-            )
-
-            # Update shader uniforms (simplified - removed pattern uniforms)
+            # Update shader uniforms
             self.program["time"].value = self.time  # type: ignore
             self.program["animation_speed"].value = self.animation_speed_uniform  # type: ignore
             self.program["rotation"].value = self.rotation_angle  # type: ignore
@@ -1443,13 +1534,13 @@ class KarmaVisualizer:
             self.program["glow_intensity"].value = self.glow_intensity  # type: ignore
             if "glow_radius" in self.program:
                 self.program["glow_radius"].value = self.glow_radius  # type: ignore
-            self.program["symmetry_mode"].value = self.current_symmetry  # type: ignore
+            self.program["symmetry_mode"].value = self.current_symmetry # type: ignore
             self.program["kaleidoscope_sections"].value = self.kaleidoscope_sections  # type: ignore
             self.program["smoke_intensity"].value = self.smoke_intensity  # type: ignore
             self.program["pulse_scale"].value = pulse_scale  # type: ignore
             self.program["warp_first"].value = self.warp_first_enabled  # type: ignore
             # Update bounce uniforms
-            self.program["bounce_enabled"].value: bool = self.bounce_enabled  # type: ignore
+            self.program["bounce_enabled"].value = self.bounce_enabled  # type: ignore
             self.program["bounce_height"].value = float(self.bounce_height)  # type: ignore
             # Update warp uniforms (only if they exist in the shader)
             if "warp_intensity" in self.program:
@@ -1496,68 +1587,55 @@ class KarmaVisualizer:
                         self.waveform_fade_alpha
                     )  # Still set alpha for consistency
 
-            # Use fixed vertices that don't change every frame - much more efficient
-            # The pulse effect will be handled in the shader using the pulse_scale uniform
-            if not hasattr(self, "fixed_vertices_set"):
-                # Only set up the vertices once for better performance
-                vertices = np.array(
-                    [
-                        # positions    # uv coordinates
-                        -1.0,
-                        -1.0,
-                        0.0,
-                        0.0,  # Bottom left
-                        1.0,
-                        -1.0,
-                        1.0,
-                        0.0,  # Bottom right
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,  # Top right
-                        -1.0,
-                        1.0,
-                        0.0,
-                        1.0,  # Top left
-                    ],
-                    dtype=DATA_FORMAT,
-                )
-                self.vbo.write(vertices)
-                self.fixed_vertices_set = True
-            # No need to update vertices every frame - they're now fixed
-
             # Main render pass (now with integrated warp maps and GPU waveforms)
-            self.main_fbo.use()
-            self.ctx.disable(BLEND)
-            self.ctx.clear(0.0, 0.0, 0.0, 1.0)
-            self.ctx.enable(BLEND)
-            self.ctx.blend_func = ONE, ONE_MINUS_SRC_ALPHA
+            if (
+                self.main_fbo is not None 
+                and isinstance(self.main_fbo, Framebuffer)  # type: ignore
+            ):
+                try:
+                    self.main_fbo.use()
+                    self.ctx.disable(BLEND)
+                    self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+                    self.ctx.enable(BLEND)
 
-            # GPU waveform rendering is integrated into main shader
-            # The main shader uses texture0 (feedback) as input and renders to main_fbo
-            self.feedback_texture.use(
-                0
-            )  # Bind feedback texture to texture0 for main shader
-            self.vao.render(TRIANGLE_FAN)
+                    # GPU waveform rendering
+                    if self.feedback_texture is not None:
+                        self.feedback_texture.use(0)
+                        self.vao.render(TRIANGLE_FAN)
+
+                    # Add main framebuffer content
+                    if isinstance(self.main_fbo, Framebuffer) and self.main_fbo.color_attachments:
+                        attachment = self.main_fbo.color_attachments[0]
+                        if hasattr(attachment, 'use'):
+                            attachment.use(0)  # type: ignore
+                            self.ctx.blend_func = SRC_ALPHA, ONE_MINUS_SRC_ALPHA
+                            self.vao.render(TRIANGLE_FAN)
+
+                            # Copy main framebuffer to feedback buffer
+                            if (
+                                isinstance(self.feedback_fbo, Framebuffer) and 
+                                isinstance(self.main_fbo, Framebuffer)
+                            ):
+                                self.ctx.copy_framebuffer(self.feedback_fbo, self.main_fbo)
+
+                except Exception as e:
+                    logger.error(f"Error during main framebuffer operation: {e}")
 
             # Screen pass - render clean visualization (no overlays)
             self.ctx.screen.use()
             self.ctx.disable(BLEND)
             self.ctx.clear(0.0, 0.0, 0.0, 1.0)
             self.ctx.enable(BLEND)
+            
+            # Render main content to screen
+            if isinstance(self.main_fbo, Framebuffer) and self.main_fbo.color_attachments:
+                attachment = self.main_fbo.color_attachments[0]
+                if hasattr(attachment, 'use'):
+                    attachment.use(0)  # type: ignore
+                    self.ctx.blend_func = SRC_ALPHA, ONE_MINUS_SRC_ALPHA
+                    self.vao.render(TRIANGLE_FAN)
 
-            # Add main framebuffer content (contains GPU waveforms)
-            self.main_fbo.color_attachments[0].use(0)
-            # Use alpha blending to respect trail_alpha for proper dimming
-            self.ctx.blend_func = SRC_ALPHA, ONE_MINUS_SRC_ALPHA
-            self.vao.render(TRIANGLE_FAN)
-
-            # CRITICAL: Copy clean screen to feedback buffer NOW, before any overlays are added
-            # This preserves the feedback loop for waveforms while excluding overlays
-            self.ctx.copy_framebuffer(self.feedback_fbo, self.ctx.screen)
-
-            # Now render overlays directly to screen (they won't be in next frame's feedback)
-            # Render spectrogram overlay directly to screen
+            # Now render overlays directly to screen
             if self.show_spectrogram_overlay:
                 self.ctx.screen.use()
                 self.ctx.enable(BLEND)
@@ -1578,10 +1656,11 @@ class KarmaVisualizer:
                 self.ctx.blend_func = SRC_ALPHA, ONE_MINUS_SRC_ALPHA
                 self.render_logo()
 
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error during render: {e}")
             raise
     @benchmark("update_viewport")
-    def update_viewport(self, new_size):
+    def update_viewport(self, new_size: Tuple[int, int]) -> None:
         global WIDTH, HEIGHT
 
         # Update the global WIDTH and HEIGHT to match the actual window/screen size
@@ -1658,13 +1737,13 @@ class KarmaVisualizer:
                     (WIDTH, HEIGHT),
                     3,
                     samples=self.anti_aliasing_samples,
-                    dtype=TEXTURE_DTYPE_STR,
+                    dtype=DATA_FORMAT_STR,
                 ),
                 self.ctx.texture(
                     (WIDTH, HEIGHT),
                     3,
                     samples=self.anti_aliasing_samples,
-                    dtype=TEXTURE_DTYPE_STR,
+                    dtype=DATA_FORMAT_STR,
                 ),
             ]
             logger.debug("Recreated main textures with {self.anti_aliasing_samples}x multisampling ({WIDTH}x{HEIGHT})")
@@ -1672,20 +1751,20 @@ class KarmaVisualizer:
         except Exception as e:
             # Fallback to non-multisampled textures
             self.textures = [
-                self.ctx.texture((WIDTH, HEIGHT), 3, dtype=TEXTURE_DTYPE_STR),
-                self.ctx.texture((WIDTH, HEIGHT), 3, dtype=TEXTURE_DTYPE_STR),
+                self.ctx.texture((WIDTH, HEIGHT), 3, dtype=DATA_FORMAT_STR),
+                self.ctx.texture((WIDTH, HEIGHT), 3, dtype=DATA_FORMAT_STR),
             ]
             logger.error(f"Multisampling not supported for textures, using standard textures: {e}")
 
         # Feedback texture doesn't need multisampling
         self.feedback_texture = self.ctx.texture(
-            (WIDTH, HEIGHT), 3, dtype=TEXTURE_DTYPE_STR
+            (WIDTH, HEIGHT), 3, dtype=DATA_FORMAT_STR
         )
         logger.debug(f"Created feedback texture ({WIDTH}x{HEIGHT})")
 
         # Recreate overlay texture for logo and other overlays
         self.overlay_texture = self.ctx.texture(
-            (WIDTH, HEIGHT), 4, dtype=TEXTURE_DTYPE_STR  # RGBA for transparency
+            (WIDTH, HEIGHT), 4, dtype=DATA_FORMAT_STR  # RGBA for transparency
         )
         logger.debug(f"Created overlay texture ({WIDTH}x{HEIGHT})")
 
@@ -1733,42 +1812,78 @@ class KarmaVisualizer:
         self.disable_additive_blending_frames = 15  # Disable additive blending for first 15 frames
         logger.debug("Set resize recovery flags")
 
-        # Recreate GPU waveform textures
+        # Recreate GPU waveform textures with proper chunk size and buffer synchronization
         if hasattr(self, "waveform_texture") and self.waveform_texture is not None:
             self.waveform_texture.release()
-            self.waveform_texture = None
+            self.waveform_texture = None  # Set to None to trigger recreation in update_gpu_waveform
+            
         if hasattr(self, "fft_texture") and self.fft_texture is not None:
             self.fft_texture.release()
-            self.fft_texture = None
+            self.fft_texture = None  # Set to None to trigger recreation in update_gpu_waveform
+            
+        # Clear resampling cache to force recalculation with new buffer sizes
+        if hasattr(self, '_resample_cache_key'):
+            delattr(self, '_resample_cache_key')
+        if hasattr(self, '_fft_resample_cache_key'):
+            delattr(self, '_fft_resample_cache_key')
+            
+        logger.debug("GPU waveform textures released and marked for recreation")
+        logger.debug("Resampling caches cleared to prevent size mismatches")
 
-        # Reset beat tracking state to ensure pulse effect works after resolution change
-        self.last_beat_time = (
-            time()
-        )  # Use time() for consistency with the beat detection
-        self.beat_interval = 0.2  # Default beat interval
-        self.beat_detected = False
-        self.pulse_intensity = 0.0
+        # Recreate GPU waveform textures with proper chunk size and buffer synchronization
+        if hasattr(self, "waveform_texture") and self.waveform_texture is not None:
+            self.waveform_texture.release()
+            self.waveform_texture = None  # Set to None to trigger recreation in update_gpu_waveform
+            
+        if hasattr(self, "fft_texture") and self.fft_texture is not None:
+            self.fft_texture.release()
+            self.fft_texture = None  # Set to None to trigger recreation in update_gpu_waveform
+            
+        # Clear resampling cache to force recalculation with new buffer sizes
+        if hasattr(self, '_resample_cache_key'):
+            delattr(self, '_resample_cache_key')
+        if hasattr(self, '_fft_resample_cache_key'):
+            delattr(self, '_fft_resample_cache_key')
+            
+        logger.debug("GPU waveform textures released and marked for recreation")
+        logger.debug("Resampling caches cleared to prevent size mismatches")
 
-    def decrease_pulse_intensity(self):
+        # Get audio data after recreating textures to ensure proper initialization
+        audio_data: AudioData = self.audio_processor.get_audio_data()
+        if audio_data is None:
+            logger.warning("No audio data available during viewport update")
+            audio_data = AudioData(
+                raw_data=np.zeros(actual_chunk_size, dtype=DATA_FORMAT),
+                fft_data=np.zeros(actual_chunk_size // 2 + 1, dtype=DATA_FORMAT),
+                amplitude=0.0,
+                beat_detected=False,
+                beat_count=0,
+                frequency_balance=0.0,
+                energy=0.0,
+                warmth=0.0,
+                last_beat_time=time()
+            )
+
+    def decrease_pulse_intensity(self) -> None:
         """Decrease the pulse intensity by 0.01, with a minimum of 0.01"""
         self.pulse_intensity_multiplier = max(
             0.1, self.pulse_intensity_multiplier - 0.1
         )
         logger.debug(f"pulse_intensity = {self.pulse_intensity_multiplier}")
 
-    def increase_pulse_intensity(self):
+    def increase_pulse_intensity(self) -> None:
         """Increase the pulse intensity by 0.01, with a maximum of 2.0"""
         self.pulse_intensity_multiplier = min(
             2.0, self.pulse_intensity_multiplier + 0.1
         )
         logger.debug(f"pulse_intensity = {self.pulse_intensity_multiplier}")
 
-    def cycle_waveform_style(self):
+    def cycle_waveform_style(self) -> None:
         """Cycle through GPU waveform shaders"""
         logger.debug("Cycling through waveform shaders...")
         self.cycle_gpu_waveform()
 
-    def cycle_gpu_waveform(self):
+    def cycle_gpu_waveform(self) -> None:
         """Select a random GPU waveform shader using WaveformManager."""
         available_waveforms = self.shader_manager.list_waveforms()
         if not available_waveforms:
@@ -1805,78 +1920,117 @@ class KarmaVisualizer:
         # The shader will be updated automatically when compilation completes
         # via process_shader_compilation_results() in the render loop
 
-    def cycle_rotation_mode(self):
+    def cycle_rotation_mode(self) -> None:
         """Cycle through rotation modes: None -> Clockwise -> Counter-clockwise -> Beat Driven"""
         modes = [0, 1, 2, 3]  # None, Clockwise, Counter-clockwise, Beat Driven
         current_index = modes.index(self.rotation_mode) if self.rotation_mode in modes else 0
         self.rotation_mode = modes[(current_index + 1) % len(modes)]
 
-    def set_rotation_speed(self, speed: float):
+    def set_rotation_speed(self, speed: float) -> None:
         """Set rotation speed multiplier"""
         self.rotation_speed = max(0.0, min(5.0, speed))
         logger.debug(f"Rotation speed: {self.rotation_speed:.2f}")
 
-    def set_rotation_amplitude(self, amplitude: float):
+    def set_rotation_amplitude(self, amplitude: float) -> None:
         """Set rotation amplitude/intensity multiplier"""
         self.rotation_amplitude = max(0.0, min(3.0, amplitude))
         logger.debug(f"Rotation amplitude: {self.rotation_amplitude:.2f}")
 
-    def set_rotation_mode(self, mode: int):
+    def set_rotation_mode(self, mode: int) -> None:
         """Set rotation mode directly"""
         if mode in [0, 1, 2, 3]:
             self.rotation_mode = mode
             mode_names = {0: "None", 1: "Clockwise", 2: "Counter-clockwise", 3: "Beat Driven"}
             logger.debug(f"Rotation mode: {mode_names.get(mode, 'Unknown')}")
 
-    def increase_rotation_speed(self):
+    def increase_rotation_speed(self) -> None:
         """Increase rotation speed by 0.1, with a maximum of 5.0"""
         self.rotation_speed = min(5.0, self.rotation_speed + 0.1)
         logger.debug(f"Rotation speed increased to: {self.rotation_speed:.2f}")
 
-    def decrease_rotation_speed(self):
+    def decrease_rotation_speed(self) -> None:
         """Decrease rotation speed by 0.1, with a minimum of 0.0"""
         self.rotation_speed = max(0.0, self.rotation_speed - 0.1)
         logger.debug(f"Rotation speed decreased to: {self.rotation_speed:.2f}")
 
-    def increase_rotation_amplitude(self):
+    def increase_rotation_amplitude(self) -> None:
         """Increase rotation amplitude by 0.1, with a maximum of 3.0"""
         self.rotation_amplitude = min(3.0, self.rotation_amplitude + 0.1)
         logger.debug(f"Rotation amplitude increased to: {self.rotation_amplitude:.2f}")
 
-    def decrease_rotation_amplitude(self):
+    def decrease_rotation_amplitude(self) -> None:
         """Decrease rotation amplitude by 0.1, with a minimum of 0.0"""
         self.rotation_amplitude = max(0.0, self.rotation_amplitude - 0.1)
         logger.debug(f"Rotation amplitude decreased to: {self.rotation_amplitude:.2f}")
 
-    def toggle_pulse(self):
+    def toggle_pulse(self) -> None:
         """Toggle screen shake effect on/off"""
         self.pulse_enabled = not self.pulse_enabled
 
-    def decrease_trail_intensity(self):
+    def set_pulse_attack_time(self, attack_time: float) -> None:
+        """Set the pulse attack time for smoother onset
+        
+        Args:
+            attack_time: Attack time in seconds (0.01 to 0.5)
+        """
+        self.pulse_attack_time = max(0.01, min(0.5, attack_time))
+        logger.debug(f"Pulse attack time set to: {self.pulse_attack_time:.3f}s")
+
+    def set_pulse_smoothing_factor(self, smoothing_factor: float) -> None:
+        """Set the pulse smoothing factor for intensity transitions
+        
+        Args:
+            smoothing_factor: Smoothing factor (0.01 to 1.0)
+        """
+        self.pulse_smoothing_factor = max(0.01, min(1.0, smoothing_factor))
+        logger.debug(f"Pulse smoothing factor set to: {self.pulse_smoothing_factor:.3f}")
+
+    def get_pulse_settings(self) -> Dict[str, Any]:
+        """Get current pulse effect settings for debugging"""
+        return {
+            'enabled': self.pulse_enabled,
+            'attack_time': self.pulse_attack_time,
+            'smoothing_factor': self.pulse_smoothing_factor,
+            'current_intensity': self.pulse_current_intensity,
+            'target_intensity': self.pulse_target_intensity,
+            'intensity_multiplier': self.pulse_intensity_multiplier
+        }
+
+    def decrease_trail_intensity(self) -> None:
         """Decrease the trail intensity by 0.05, with a minimum of 0.0"""
         self.trail_intensity = max(0.0, self.trail_intensity - 0.5)
 
-    def increase_trail_intensity(self):
+    def increase_trail_intensity(self) -> None:
         """Increase the trail intensity by 0.05, with a maximum of 1.0"""
         self.trail_intensity = min(5.0, self.trail_intensity + 0.5)
 
-    def decrease_glow_intensity(self):
-        """Decrease the glow intensity by 0.01, with a minimum of 0.7"""
-        self.glow_intensity = max(0.7, self.glow_intensity - 0.01)
+    def decrease_glow_intensity(self) -> None:
+        """Decrease the glow intensity by 0.01, with a minimum of 0.3 (manual control)"""
+        self.glow_intensity = max(0.3, self.glow_intensity - 0.01)  # Manual minimum is lower than auto minimum
+        # Update original glow intensity and target for brightness detection
+        self.original_glow_intensity = self.glow_intensity
+        self.target_glow_intensity = self.glow_intensity
+        # Reset brightness adjustment state since user manually changed intensity
+        self.brightness_adjustment_active = False
 
-    def increase_glow_intensity(self):
-        """Increase the glow intensity by 0.1, with a maximum of 2.0"""
-        self.glow_intensity = min(1.0, self.glow_intensity + 0.01)
+    def increase_glow_intensity(self) -> None:
+        """Increase the glow intensity by 0.01, with a maximum of 1.5 (manual control)"""
+        self.glow_intensity = min(1.5, self.glow_intensity + 0.01)  # Manual maximum is higher than auto maximum
+        # Update original glow intensity and target for brightness detection
+        self.original_glow_intensity = self.glow_intensity
+        self.target_glow_intensity = self.glow_intensity
+        # Reset brightness adjustment state since user manually changed intensity
+        self.brightness_adjustment_active = False
 
-    def decrease_glow_radius(self):
+    def decrease_glow_radius(self) -> None:
         """Decrease the glow radius by 0.005, with a minimum of 0.01"""
         self.glow_radius = max(0.01, self.glow_radius - 0.005)
 
-    def increase_glow_radius(self):
+    def increase_glow_radius(self) -> None:
         """Increase the glow radius by 0.005, with a maximum of 0.2"""
         self.glow_radius = min(0.2, self.glow_radius + 0.005)
 
-    def toggle_gpu_waveform_random(self):
+    def toggle_gpu_waveform_random(self) -> None:
         """Toggle random GPU waveform selection on/off"""
         self.gpu_waveform_random = not self.gpu_waveform_random
         status = "enabled" if self.gpu_waveform_random else "disabled"
@@ -1886,35 +2040,35 @@ class KarmaVisualizer:
         if self.gpu_waveform_random:
             self.cycle_gpu_waveform()
 
-    def decrease_smoke_intensity(self):
+    def decrease_smoke_intensity(self) -> None:
         """Decrease the smoke intensity by 0.1, with a minimum of 0.0"""
         self.smoke_intensity = max(0.0, self.smoke_intensity - 0.1)
         logger.debug(f"Smoke intensity decreased to: {self.smoke_intensity:.1f}")
 
-    def increase_smoke_intensity(self):
+    def increase_smoke_intensity(self) -> None:
         """Increase the smoke intensity by 0.1, with a maximum of 1.0"""
         self.smoke_intensity = min(1.0, self.smoke_intensity + 0.1)
         logger.debug(f"Smoke intensity increased to: {self.smoke_intensity:.1f}")
 
-    def decrease_warp_intensity(self):
+    def decrease_warp_intensity(self) -> None:
         """Decrease the warp intensity by 0.05, with a minimum of 0.0"""
         self.warp_intensity = max(0.0, self.warp_intensity - 0.1)
         logger.debug(f"Warp intensity decreased to: {self.warp_intensity:.2f}")
 
-    def increase_warp_intensity(self):
+    def increase_warp_intensity(self) -> None:
         """Increase the warp intensity by 0.05, with a maximum of 2.0"""
         self.warp_intensity = min(5.0, self.warp_intensity + 0.1)
         logger.debug(f"Warp intensity increased to: {self.warp_intensity:.2f}")
 
-    def decrease_waveform_scale(self):
+    def decrease_waveform_scale(self) -> None:
         """Decrease the waveform scale by 0.1, with a minimum of 0.1"""
         self.waveform_scale = max(0.1, self.waveform_scale - 0.1)
 
-    def increase_waveform_scale(self):
+    def increase_waveform_scale(self) -> None:
         """Increase the waveform scale by 0.1, with a maximum of 5.0"""
         self.waveform_scale = min(5.0, self.waveform_scale + 0.1)
 
-    def cycle_symmetry_mode(self):
+    def cycle_symmetry_mode(self) -> None:
         """Cycle through symmetry modes: None -> Mirror -> Quad -> Kaleidoscope -> Grid -> Spiral -> Diamond -> Fractal -> Random"""
         if self.symmetry_mode == -1:  # If currently on Random
             self.symmetry_mode = 0  # Go back to None
@@ -1931,27 +2085,27 @@ class KarmaVisualizer:
         else:
             self.current_symmetry = self.symmetry_mode
 
-    def decrease_animation_speed(self):
+    def decrease_animation_speed(self) -> None:
         """Decrease the base animation speed by 0.2, with a minimum of 0.0"""
         self.animation_speed = max(0.0, self.animation_speed - 0.2)
         logger.debug(f"Animation speed: {self.animation_speed:.1f}")
 
-    def increase_animation_speed(self):
+    def increase_animation_speed(self) -> None:
         """Increase the base animation speed by 0.2, with a maximum of 5.0"""
         self.animation_speed = min(2.0, self.animation_speed + 0.2)
         logger.debug(f"Animation speed: {self.animation_speed:.1f}")
 
-    def decrease_audio_speed_boost(self):
+    def decrease_audio_speed_boost(self) -> None:
         """Decrease the audio speed boost by 0.1, with a minimum of 0.0"""
         self.audio_speed_boost = max(0.0, self.audio_speed_boost - 0.05)
         logger.debug(f"Audio speed boost: {self.audio_speed_boost:.1f}")
 
-    def increase_audio_speed_boost(self):
+    def increase_audio_speed_boost(self) -> None:
         """Increase the audio speed boost by 0.1, with a maximum of 1.0"""
         self.audio_speed_boost = min(1.0, self.audio_speed_boost + 0.05)
         logger.debug(f"Audio speed boost: {self.audio_speed_boost:.1f}")
 
-    def get_current_waveform_color(self):
+    def get_current_waveform_color(self) -> Tuple[float, float, float]:
         """Get the current waveform color from the active palette"""
         try:
             if self.current_palette and len(self.current_palette) > 0:
@@ -1986,9 +2140,9 @@ class KarmaVisualizer:
                 )
 
                 enhanced_color = (
-                    min(1.0, base_color[0] * final_brightness),
-                    min(1.0, base_color[1] * final_brightness),
-                    min(1.0, base_color[2] * final_brightness),
+                    min(1.0, float(base_color[0] * final_brightness)),
+                    min(1.0, float(base_color[1] * final_brightness)),
+                    min(1.0, float(base_color[2] * final_brightness)),
                 )
 
                 return enhanced_color
@@ -2010,33 +2164,33 @@ class KarmaVisualizer:
                 fallback_color[2] * self.waveform_brightness_multiplier,
             )
 
-    def decrease_palette_speed(self):
+    def decrease_palette_speed(self) -> None:
         """Decrease the palette rotation speed by 0.1, with a minimum of 0.1"""
         self.palette_rotation_speed = max(
             0.1, self.palette_rotation_speed - 0.1
         )
 
-    def increase_palette_speed(self):
+    def increase_palette_speed(self) -> None:
         """Increase the palette rotation speed by 0.1, with a maximum of 15.0"""
         self.palette_rotation_speed = min(
             15.0, self.palette_rotation_speed + 0.1
         )
 
-    def decrease_color_cycle_speed(self):
+    def decrease_color_cycle_speed(self) -> None:
         """Decrease the color cycle speed multiplier by 0.1, minimum 0.1"""
         self.color_cycle_speed_multiplier = max(
             0.1, self.color_cycle_speed_multiplier - 0.1
         )
         logger.debug(f"Color Cycle Speed Multiplier: {self.color_cycle_speed_multiplier:.1f}")
 
-    def increase_color_cycle_speed(self):
+    def increase_color_cycle_speed(self) -> None:
         """Increase the color cycle speed multiplier by 0.1, maximum 15.0"""
         self.color_cycle_speed_multiplier = min(
             15.0, self.color_cycle_speed_multiplier + 0.1
         )
         logger.debug(f"Color Cycle Speed Multiplier: {self.color_cycle_speed_multiplier:.1f}")
 
-    def force_palette_change(self):
+    def force_palette_change(self) -> None:
         """Force a smooth palette change based on current mood"""
         new_palette = self.get_mood_palette(self.current_mood)
         self._start_palette_transition(new_palette)
@@ -2045,18 +2199,18 @@ class KarmaVisualizer:
         if self.bounce_enabled and self.bounce_height > 0.001:
             # Calculate bounce offset based on current bounce height
             bounce_offset = int(self.bounce_height * HEIGHT * 0.3)  # 30% of height max
-            y_coords += bounce_offset
-
+            # Removed unused y_coords code
+            
             # Decay the bounce height
             time_since_bounce = time() - self.last_bounce_time
             self.bounce_height *= np.exp(-self.bounce_decay * time_since_bounce)
 
-    def toggle_spectrogram_overlay(self):
+    def toggle_spectrogram_overlay(self) -> None:
         """Toggle the spectrogram overlay on/off"""
         self.show_spectrogram_overlay = not self.show_spectrogram_overlay
 
     @benchmark("update_spectrogram_data")
-    def update_spectrogram_data(self, audio_data):
+    def update_spectrogram_data(self, audio_data: np.ndarray) -> None:
         """Update spectrogram data from audio buffer with logarithmic frequency mapping and smoothing"""
         if not self.show_spectrogram_overlay:
             return
@@ -2146,7 +2300,7 @@ class KarmaVisualizer:
             self.spectrogram_texture.write(self.spectrogram_data.astype("f4").tobytes())
 
     @benchmark("render_spectrogram_overlay")
-    def render_spectrogram_overlay(self):
+    def render_spectrogram_overlay(self) -> None:
         """Render the spectrogram overlay using shader-based approach with palette colors"""
         if not self.show_spectrogram_overlay:
             return
@@ -2154,7 +2308,7 @@ class KarmaVisualizer:
         # Create or recreate frequency texture if needed
         if self.spectrogram_texture is None:
             self.spectrogram_texture = self.ctx.texture(
-                (128, 1), 1, dtype=TEXTURE_DTYPE_STR
+                (128, 1), 1, dtype=DATA_FORMAT_STR
             )
 
         # Update frequency data texture
@@ -2165,7 +2319,7 @@ class KarmaVisualizer:
             palette_size = len(self.current_palette)
 
             # Vectorized palette conversion
-            palette_array = np.array(self.current_palette, dtype=DATA_FORMAT) / 255.0
+            palette_array = np.array(self.current_palette, dtype=np.float32) / 255.0
 
             # Create or recreate palette texture if size changed
             if (self.spectrogram_palette_texture is None or
@@ -2173,7 +2327,7 @@ class KarmaVisualizer:
                 if self.spectrogram_palette_texture is not None:
                     self.spectrogram_palette_texture.release()
                 self.spectrogram_palette_texture = self.ctx.texture(
-                    (palette_size, 1), 3, dtype=TEXTURE_DTYPE_STR
+                    (palette_size, 1), 3, dtype=DATA_FORMAT_STR
                 )
 
             # Update palette texture
@@ -2183,18 +2337,22 @@ class KarmaVisualizer:
             # Fallback to white if no palette
             if self.spectrogram_palette_texture is None:
                 self.spectrogram_palette_texture = self.ctx.texture(
-                    (1, 1), 3, dtype=DATA_FORMAT
+                    (1, 1), 3, dtype=DATA_FORMAT_STR
                 )
-            fallback_color = np.array([[1.0, 1.0, 1.0]], dtype=DATA_FORMAT)
+            fallback_color = np.array([[1.0, 1.0, 1.0]], dtype=np.float32)
             self.spectrogram_palette_texture.write(fallback_color.tobytes())
 
         # Set shader uniforms
-        self.spectrogram_program["frequency_data"] = 0
-        self.spectrogram_program["palette_data"] = 1
-        self.spectrogram_program["palette_size"] = palette_size
-        self.spectrogram_program["opacity"] = 1.0
-        self.spectrogram_program["time"] = self.time
-        self.spectrogram_program["color_interpolation_speed"] = self.spectrogram_color_interpolation_speed
+        if self.spectrogram_program is not None:
+            try:
+                self.spectrogram_program["frequency_data"] = 0
+                self.spectrogram_program["palette_data"] = 1
+                self.spectrogram_program["palette_size"] = palette_size
+                self.spectrogram_program["opacity"] = 1.0
+                self.spectrogram_program["time"] = self.time
+                self.spectrogram_program["color_interpolation_speed"] = self.spectrogram_color_interpolation_speed
+            except Exception as e:
+                logger.debug(f"Error setting spectrogram uniforms: {e}")
 
         # Bind textures
         self.spectrogram_texture.use(0)
@@ -2206,20 +2364,20 @@ class KarmaVisualizer:
         # Render the overlay
         self.spectrogram_vao.render(TRIANGLE_FAN)
 
-    def toggle_mouse_interaction(self):
+    def toggle_mouse_interaction(self) -> None:
         """Toggle mouse interaction on/off"""
         self.mouse_interaction_enabled = not self.mouse_interaction_enabled
         self.program["mouse_enabled"] = self.mouse_interaction_enabled  # type: ignore
         logger.debug(f"Mouse interaction: {'enabled' if self.mouse_interaction_enabled else 'disabled'}")
 
-    def increase_mouse_intensity(self):
+    def increase_mouse_intensity(self) -> None:
         """Increase the mouse interaction intensity by 0.1, with a maximum of 3.0"""
         self.mouse_intensity = min(3.0, self.mouse_intensity + 0.1)
         if "mouse_intensity" in self.program:
             self.program["mouse_intensity"] = self.mouse_intensity  # type: ignore
         logger.debug(f"Mouse intensity increased to: {self.mouse_intensity:.1f}")
 
-    def decrease_mouse_intensity(self):
+    def decrease_mouse_intensity(self) -> None:
         """Decrease the mouse interaction intensity by 0.1, with a minimum of 0.1"""
         self.mouse_intensity = max(0.1, self.mouse_intensity - 0.1)
         if "mouse_intensity" in self.program:
@@ -2250,7 +2408,7 @@ class KarmaVisualizer:
         self.ripples.append([x, y, current_time, intensity])
         logger.debug(f"Added ripple at ({x:.0f}, {y:.0f}) with intensity {intensity:.1f}")
 
-    def update_click_effects(self):
+    def update_click_effects(self) -> None:
         """Update and clean up expired click effects"""
         current_time = time()
         shockwave_duration = 2.0  # Shockwaves last 2 seconds
@@ -2262,7 +2420,7 @@ class KarmaVisualizer:
         # Remove expired ripples
         self.ripples = [rp for rp in self.ripples if (current_time - rp[2]) < ripple_duration]
 
-    def _update_click_effect_uniforms(self):
+    def _update_click_effect_uniforms(self) -> None:
         """Update shader uniforms with current click effect data"""
         current_time = time()
         
@@ -2302,12 +2460,12 @@ class KarmaVisualizer:
         if "ripple_data" in self.program:
             self.program["ripple_data"] = ripple_data  # type: ignore
 
-    def toggle_warp_first(self):
+    def toggle_warp_first(self) -> None:
         """Toggle the order of warp and symmetry application."""
         self.warp_first_enabled = not self.warp_first_enabled
         logger.debug(f"Warp First Mode: {'Enabled' if self.warp_first_enabled else 'Disabled'}")
 
-    def toggle_bounce(self):
+    def toggle_bounce(self) -> None:
         """Toggle the bounce effect on/off"""
         self.bounce_enabled = not self.bounce_enabled
         logger.debug(f"Bounce effect: {'enabled' if self.bounce_enabled else 'disabled'}")
@@ -2320,14 +2478,14 @@ class KarmaVisualizer:
             self.bounce_velocity = 0.1
             self.last_bounce_time = time()
 
-    def increase_bounce_intensity(self):
+    def increase_bounce_intensity(self) -> None:
         """Increase the bounce intensity by 0.1, with a maximum of 1.0 asynchronously"""
         self.bounce_intensity_multiplier = min(
             1.0, self.bounce_intensity_multiplier + 0.05
         )
         logger.debug(f"Bounce intensity: {self.bounce_intensity_multiplier:.1f}")
 
-    def decrease_bounce_intensity(self):
+    def decrease_bounce_intensity(self) -> None:
         """Decrease the bounce intensity by 0.1, with a minimum of 0.1"""
         self.bounce_intensity_multiplier = max(
             0.1, self.bounce_intensity_multiplier - 0.05
@@ -2364,7 +2522,7 @@ class KarmaVisualizer:
             # Clear warp map
             self.clear_warp_map()
 
-    def cycle_to_random_warp_map(self):
+    def cycle_to_random_warp_map(self) -> None:
         """Cycle to a random warp map"""
         # Get available warp map keys (filenames)
         warp_map_keys = list(self.warp_map_manager.warp_maps.keys())
@@ -2376,12 +2534,15 @@ class KarmaVisualizer:
             if other_keys:
                 random_key = choice(other_keys)
                 random_warp_map = self.warp_map_manager.get_warp_map(random_key)
-                logger.debug(f"Selected warp map: {random_warp_map.name}")
+                if random_warp_map:
+                    logger.debug(f"Selected warp map: {random_warp_map.name}")
+                else:
+                    logger.debug(f"Failed to load warp map for key: {random_key}")
                 self.select_random_warp_map(random_key)  # Pass filename key, not display name
             else:
                 logger.debug("Only one warp map available, keeping current selection")
 
-    def clear_warp_map(self):
+    def clear_warp_map(self) -> None:
         """Clear the current warp map asynchronously"""
         logger.debug("[AsyncShader] Clearing warp map - compiling shader without warp effects")
 
@@ -2407,7 +2568,7 @@ class KarmaVisualizer:
         # The shader will be updated automatically when compilation completes
         # via process_shader_compilation_results() in the render loop
 
-    def _copy_uniform_values(self, old_program, new_program):
+    def _copy_uniform_values(self, old_program: Any, new_program: Any) -> None:
         """Copy uniform values from old program to new program"""
         uniforms_to_preserve = [
             'time', 'animation_speed', 'rotation', 'trail_intensity',
@@ -2428,7 +2589,7 @@ class KarmaVisualizer:
                 except Exception:
                     pass  # Silently ignore uniform copy errors
 
-    def _handle_program_update(self, purpose: str, new_program) -> None:
+    def _handle_program_update(self, purpose: str, new_program: Any) -> None:
         """Handle program updates from shader compilation results.
 
         Args:
@@ -2454,22 +2615,22 @@ class KarmaVisualizer:
             if old_program:
                 old_program.release()
 
-    def increase_beats_per_change(self):
+    def increase_beats_per_change(self) -> None:
         """Increase beats per change by 1, maximum 64"""
-        self.beats_per_change = min(64, self.beats_per_change + 1)
+        self.beats_per_change = min(64, int(self.beats_per_change) + 1)
         logger.debug(f"Beats per change: {self.beats_per_change}")
 
-    def decrease_beats_per_change(self):
+    def decrease_beats_per_change(self) -> None:
         """Decrease beats per change by 1, minimum 1"""
-        self.beats_per_change = max(1, self.beats_per_change - 1)
+        self.beats_per_change = max(1, int(self.beats_per_change) - 1)
         logger.debug(f"Beats per change: {self.beats_per_change}")
 
-    def toggle_transitions(self):
+    def toggle_transitions(self) -> None:
         """Toggle automatic transitions on/off"""
         self.transitions_paused = not self.transitions_paused
         logger.debug(f"Automatic transitions: {'paused' if self.transitions_paused else 'enabled'}")
 
-    def update_silence_detection(self, current_time):
+    def update_silence_detection(self, current_time: float) -> None:
         """Update silence detection and logo fade state"""
         try:
             # Check if in test mode or if current amplitude is below silence threshold
@@ -2543,7 +2704,7 @@ class KarmaVisualizer:
         except Exception as e:
             logger.error(f"Error in silence detection: {e}")
 
-    def toggle_logo_test(self):
+    def toggle_logo_test(self) -> None:
         """Toggle logo test mode for debugging"""
         self.logo_test_mode = not self.logo_test_mode
         logger.debug(f"🧪 Logo test mode toggled: {self.logo_test_mode}")
@@ -2559,7 +2720,7 @@ class KarmaVisualizer:
             self.logo_fade_alpha = 0.0
             self.waveform_brightness_multiplier = 1.0
 
-    def update_anti_aliasing(self, samples):
+    def update_anti_aliasing(self, samples: int) -> None:
         """Update anti-aliasing setting and reload logo texture if needed"""
         old_samples = self.anti_aliasing_samples
         self.anti_aliasing_samples = samples
@@ -2579,7 +2740,7 @@ class KarmaVisualizer:
             self.load_logo_texture()
             logger.debug("Logo texture reloaded with new anti-aliasing settings")
 
-    def update_chunk_size(self, new_chunk_size):
+    def update_chunk_size(self, new_chunk_size: int) -> None:
         """Update audio chunk size and reinitialize GPU waveform system"""
         if hasattr(self.audio_processor, 'get_chunk_size') and self.audio_processor.get_chunk_size() == new_chunk_size:
             return  # No change needed
@@ -2604,7 +2765,7 @@ class KarmaVisualizer:
         # The GPU waveform textures will be recreated on the next update_gpu_waveform call
         logger.debug(f"GPU waveform textures cleared for chunk size change to {new_chunk_size}")
 
-    def calculate_logo_pulse(self, current_time):
+    def calculate_logo_pulse(self, current_time: float) -> float:
         """Calculate smooth pulse scale with slow in and out breathing effect"""
         # Use a slower pulse rate for smooth breathing effect
         pulse_rate = 0.5  # 0.5 Hz = one complete pulse every 2 seconds
@@ -2641,7 +2802,7 @@ class KarmaVisualizer:
             self.logo_overlay_alpha = 0.0
             self.waveform_fade_alpha = 1.0
 
-    def render_logo_overlay(self):
+    def render_logo_overlay(self) -> None:
         """Render logo overlay during startup using existing logo system"""
         if not self.logo_surface or self.logo_overlay_alpha <= 0.0:
             return
@@ -2656,7 +2817,7 @@ class KarmaVisualizer:
         # Restore original fade alpha
         self.logo_fade_alpha = original_fade_alpha
 
-    def render_logo(self):
+    def render_logo(self) -> None:
         """Render the KarmaViz logo with current fade alpha"""
         if not self.logo_texture:
             logger.error(f"Logo texture is None - cannot render logo")
@@ -2834,10 +2995,14 @@ class KarmaVisualizer:
             self.logo_pulse_scale = self.calculate_logo_pulse(current_time)
 
             # Bind logo texture and set uniforms
-            self.logo_texture.use(0)
-            self.logo_program["logo_texture"].value = 0
-            self.logo_program["alpha"].value = self.logo_fade_alpha
-            self.logo_program["hue_shift"].value = self.logo_hue_shift
+            if self.logo_program is not None:
+                try:
+                    self.logo_texture.use(0)
+                    self.logo_program["logo_texture"] = 0
+                    self.logo_program["alpha"] = self.logo_fade_alpha
+                    self.logo_program["hue_shift"] = self.logo_hue_shift
+                except Exception as e:
+                    logger.debug(f"Error setting logo uniforms: {e}")
 
             # Render logo quad using TRIANGLE_FAN
             self.logo_vao.render(mode=self.ctx.TRIANGLE_FAN)
@@ -2878,6 +3043,12 @@ class KarmaVisualizer:
         else:
             monitor.enable()
             logger.debug("Performance monitoring enabled.")
+
+    def _is_valid_framebuffer(self, fbo: Framebuffer | None) -> bool:
+        """Check if a framebuffer is valid and usable"""
+        return (fbo is not None and 
+                isinstance(fbo, Framebuffer) and
+                hasattr(fbo, 'color_attachments'))
 
 
 # Splash screen functionality moved to modules/splash_screen.py
