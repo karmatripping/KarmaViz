@@ -1688,8 +1688,6 @@ vec2 get_pattern(vec2 pos, float t) {
                         try:
                             if uniform_name in visualizer.program:
                                 visualizer.program[uniform_name].value = value
-                                if uniform_name == 'waveform_enabled':
-                                    print(f"   🔍 [DEBUG] ⭐ CRITICAL: Updated shader uniform {uniform_name} = {value}")
                                 updated_count += 1
                         except Exception:
                             pass  # Some uniforms might not exist in current shader
