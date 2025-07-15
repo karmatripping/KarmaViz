@@ -6,6 +6,7 @@ Similar to the palette editor but for GLSL warp map functions.
 """
 
 import sys
+import os
 import json
 import time
 import math
@@ -40,6 +41,7 @@ from modules.warp_map_manager import WarpMapManager, WarpMapInfo
 from modules.glsl_syntax_highlighter import GLSLSyntaxHighlighter
 from modules.line_numbered_editor import LineNumberedCodeEditor
 from modules.logging_config import get_logger
+from modules.input_sanitizer import input_sanitizer
 
 logger = get_logger("warp_map_editor")
 
@@ -1195,15 +1197,39 @@ class WarpMapEditor(QWidget):
         if not self.current_warp_map:
             return False
 
+        # Collect raw input data
+        raw_metadata = {
+            'name': self.name_edit.text(),
+            'description': self.description_edit.toPlainText(),
+            'author': self.author_edit.text(),
+            'category': self.category_edit.currentText(),
+            'version': self.version_edit.text(),
+            'glsl_code': self.code_editor.toPlainText()
+        }
+
+        # Sanitize all metadata
+        sanitized_metadata, warnings, errors = input_sanitizer.sanitize_all_metadata(raw_metadata)
+
+        # Show warnings if any
+        if warnings:
+            warning_msg = "The following issues were found and corrected:\n\n" + "\n".join(warnings)
+            QMessageBox.information(self, "Input Sanitization", warning_msg)
+
+        # Show errors and abort if any critical issues
+        if errors:
+            error_msg = "The following errors must be fixed before saving:\n\n" + "\n".join(errors)
+            QMessageBox.warning(self, "Validation Errors", error_msg)
+            return False
+
         # Check for any recent GLSL compilation errors
         if hasattr(self, 'shader_compiler') and self.shader_compiler and self.current_warp_map_key:
-            errors = self.shader_compiler.get_latest_errors_for_warp(self.current_warp_map_key)
-            if errors:
+            compilation_errors = self.shader_compiler.get_latest_errors_for_warp(self.current_warp_map_key)
+            if compilation_errors:
                 # Set errors in editor for highlighting
                 self.code_editor.clear_errors()
-                self.code_editor.set_errors_from_main_shader(errors)
+                self.code_editor.set_errors_from_main_shader(compilation_errors)
                 
-                error_msg = f"GLSL compilation errors found:\n" + "\n".join([f"Line {line}: {msg}" for line, msg in errors[:3]])
+                error_msg = f"GLSL compilation errors found:\n" + "\n".join([f"Line {line}: {msg}" for line, msg in compilation_errors[:3]])
                 reply = QMessageBox.question(
                     self, 
                     "Syntax Errors", 
@@ -1214,19 +1240,14 @@ class WarpMapEditor(QWidget):
                 if reply == QMessageBox.No:
                     return False
 
-        # Update warp map with current data
-        self.current_warp_map.name = self.name_edit.text().strip()
-        self.current_warp_map.category = self.category_edit.currentText().strip()
-        self.current_warp_map.description = self.description_edit.toPlainText().strip()
+        # Update warp map with sanitized data
+        self.current_warp_map.name = sanitized_metadata['name']
+        self.current_warp_map.category = sanitized_metadata['category']
+        self.current_warp_map.description = sanitized_metadata['description']
         self.current_warp_map.complexity = self.complexity_edit.currentText()
-        self.current_warp_map.author = self.author_edit.text().strip()
-        self.current_warp_map.version = self.version_edit.text().strip()
-        self.current_warp_map.glsl_code = self.code_editor.toPlainText()
-
-        # Validate required fields
-        if not self.current_warp_map.name:
-            QMessageBox.warning(self, "Validation Error", "Name is required.")
-            return False
+        self.current_warp_map.author = sanitized_metadata['author']
+        self.current_warp_map.version = sanitized_metadata['version']
+        self.current_warp_map.glsl_code = sanitized_metadata['glsl_code']
 
         # Save to disk
         if self.warp_map_manager.save_warp_map(self.current_warp_map, overwrite=True):
@@ -1451,22 +1472,53 @@ Tips:
         )
 
         if file_path:
+            # Validate file path and size
+            path_result = input_sanitizer.validate_file_path(file_path, allowed_extensions=['.glsl'])
+            if not path_result.is_valid:
+                error_msg = "File validation failed:\n\n" + "\n".join(path_result.errors)
+                QMessageBox.warning(self, "Import Error", error_msg)
+                return
+
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     glsl_code = f.read()
 
-                # Create new warp map
+                # Create new warp map with basic info
                 import os
-                name = os.path.splitext(os.path.basename(file_path))[0]
+                base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+                # Prepare metadata for sanitization
+                import_metadata = {
+                    'name': base_name,
+                    'description': f"Imported from {os.path.basename(file_path)}",
+                    'author': "Imported",
+                    'category': "imported",
+                    'version': "1.0",
+                    'glsl_code': glsl_code
+                }
+
+                # Sanitize the imported data
+                sanitized_metadata, warnings, errors = input_sanitizer.sanitize_all_metadata(import_metadata)
+
+                # Show sanitization warnings
+                if warnings:
+                    warning_msg = "Imported data was sanitized:\n\n" + "\n".join(warnings)
+                    QMessageBox.information(self, "Import Sanitization", warning_msg)
+
+                # Check for critical errors
+                if errors:
+                    error_msg = "Imported data has critical errors:\n\n" + "\n".join(errors)
+                    QMessageBox.warning(self, "Import Error", error_msg)
+                    return
 
                 new_warp_map = WarpMapInfo(
-                    name=name,
-                    category="imported",
-                    description=f"Imported from {os.path.basename(file_path)}",
-                    glsl_code=glsl_code,
+                    name=sanitized_metadata['name'],
+                    category=sanitized_metadata['category'],
+                    description=sanitized_metadata['description'],
+                    glsl_code=sanitized_metadata['glsl_code'],
                     complexity="medium",
-                    author="Imported",
-                    version="1.0",
+                    author=sanitized_metadata['author'],
+                    version=sanitized_metadata['version'],
                     is_builtin=False
                 )
 
@@ -1477,7 +1529,7 @@ Tips:
                 self.unsaved_changes = True
                 self.update_ui_state()
 
-                QMessageBox.information(self, "Success", f"Imported warp map '{name}'. Don't forget to save!")
+                QMessageBox.information(self, "Success", f"Imported warp map '{sanitized_metadata['name']}'. Don't forget to save!")
 
             except Exception as e:
                 QMessageBox.critical(self, "Import Error", f"Failed to import warp map:\n{str(e)}")
@@ -1487,12 +1539,23 @@ Tips:
         if not self.current_warp_map:
             return
 
+        # Sanitize the default filename
+        filename_result = input_sanitizer.sanitize_filename(f"{self.current_warp_map.name}.glsl")
+        default_filename = filename_result.sanitized_value if filename_result.is_valid else "warp_map.glsl"
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Warp Map", f"{self.current_warp_map.name}.glsl",
+            self, "Export Warp Map", default_filename,
             "GLSL Files (*.glsl);;All Files (*)"
         )
 
         if file_path:
+            # Check if directory is writable (basic check)
+            if not os.access(os.path.dirname(file_path), os.W_OK):
+                QMessageBox.warning(
+                    self, "Export Error", "Cannot write to the selected directory"
+                )
+                return
+
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(self.current_warp_map.glsl_code)

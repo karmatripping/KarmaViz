@@ -64,6 +64,7 @@ except ImportError:
 from modules.waveform_manager import WaveformManager, WaveformInfo
 from modules.glsl_syntax_highlighter import GLSLSyntaxHighlighter
 from modules.line_numbered_editor import LineNumberedCodeEditor
+from modules.input_sanitizer import input_sanitizer
 
 
 def apply_dark_theme(app):
@@ -1249,20 +1250,37 @@ class WaveformEditor(QWidget):
         if not self.current_waveform:
             return False
 
-        # Update waveform with current editor content
-        self.current_waveform.name = self.name_edit.text().strip()
-        self.current_waveform.description = self.description_edit.toPlainText().strip()
-        self.current_waveform.author = self.author_edit.text().strip()
-        self.current_waveform.category = self.category_edit.currentText().strip()
-        self.current_waveform.complexity = self.complexity_combo.currentText()
+        # Collect raw input data
+        raw_metadata = {
+            'name': self.name_edit.text(),
+            'description': self.description_edit.toPlainText(),
+            'author': self.author_edit.text(),
+            'category': self.category_edit.currentText(),
+            'glsl_code': self.code_editor.toPlainText()
+        }
 
-        self.current_waveform.is_builtin = self.builtin_checkbox.isChecked()
-        self.current_waveform.glsl_code = self.code_editor.toPlainText()
+        # Sanitize all metadata
+        sanitized_metadata, warnings, errors = input_sanitizer.sanitize_all_metadata(raw_metadata)
 
-        # Validate name
-        if not self.current_waveform.name:
-            QMessageBox.warning(self, "Invalid Name", "Waveform name cannot be empty.")
+        # Show warnings if any
+        if warnings:
+            warning_msg = "The following issues were found and corrected:\n\n" + "\n".join(warnings)
+            QMessageBox.information(self, "Input Sanitization", warning_msg)
+
+        # Show errors and abort if any critical issues
+        if errors:
+            error_msg = "The following errors must be fixed before saving:\n\n" + "\n".join(errors)
+            QMessageBox.warning(self, "Validation Errors", error_msg)
             return False
+
+        # Update waveform with sanitized content
+        self.current_waveform.name = sanitized_metadata['name']
+        self.current_waveform.description = sanitized_metadata['description']
+        self.current_waveform.author = sanitized_metadata['author']
+        self.current_waveform.category = sanitized_metadata['category']
+        self.current_waveform.complexity = self.complexity_combo.currentText()
+        self.current_waveform.is_builtin = self.builtin_checkbox.isChecked()
+        self.current_waveform.glsl_code = sanitized_metadata['glsl_code']
             
         # Check for any recent GLSL compilation errors
         if hasattr(self, 'shader_compiler') and self.shader_compiler and self.current_waveform_key:
@@ -1379,14 +1397,31 @@ class WaveformEditor(QWidget):
         if not self.current_waveform:
             return
 
+        # Sanitize the default filename
+        filename_result = input_sanitizer.sanitize_filename(f"{self.current_waveform.name}.kvwf")
+        default_filename = filename_result.sanitized_value if filename_result.is_valid else "waveform.kvwf"
+
         filename, _ = QFileDialog.getSaveFileName(
             self,
             "Export Waveform",
-            f"{self.current_waveform.name}.kvwf",
+            default_filename,
             "KarmaViz Waveform Files (*.kvwf)",
         )
 
         if filename:
+            # Validate the chosen file path
+            path_result = input_sanitizer.validate_file_path(
+                os.path.dirname(filename), 
+                allowed_extensions=['.kvwf']
+            )
+            
+            # Check if directory is writable (basic check)
+            if not os.access(os.path.dirname(filename), os.W_OK):
+                QMessageBox.warning(
+                    self, "Export Error", "Cannot write to the selected directory"
+                )
+                return
+            
             try:
                 with open(filename, "wb") as f:
                     f.write(self.current_waveform.to_binary())
@@ -1405,10 +1440,64 @@ class WaveformEditor(QWidget):
         )
 
         if filename:
+            # Validate file path and size
+            path_result = input_sanitizer.validate_file_path(filename, allowed_extensions=['.kvwf'])
+            if not path_result.is_valid:
+                error_msg = "File validation failed:\n\n" + "\n".join(path_result.errors)
+                QMessageBox.warning(self, "Import Error", error_msg)
+                return
+
             try:
                 with open(filename, "rb") as f:
                     data = f.read()
+                    
+                    # Validate binary data format
+                    binary_result = input_sanitizer.validate_binary_data(
+                        data, 
+                        b'KVWF',  # Expected magic header for waveform files
+                        input_sanitizer.MAX_FILE_SIZE
+                    )
+                    
+                    if not binary_result.is_valid:
+                        error_msg = "Binary data validation failed:\n\n" + "\n".join(binary_result.errors)
+                        QMessageBox.warning(self, "Import Error", error_msg)
+                        return
+                    
+                    # Show warnings if any
+                    if binary_result.warnings:
+                        warning_msg = "Import warnings:\n\n" + "\n".join(binary_result.warnings)
+                        QMessageBox.information(self, "Import Warnings", warning_msg)
+                    
                     waveform_info = WaveformInfo.from_binary(data)
+
+                # Sanitize the imported waveform data
+                import_metadata = {
+                    'name': waveform_info.name,
+                    'description': waveform_info.description,
+                    'author': waveform_info.author,
+                    'category': waveform_info.category,
+                    'glsl_code': waveform_info.glsl_code
+                }
+                
+                sanitized_metadata, warnings, errors = input_sanitizer.sanitize_all_metadata(import_metadata)
+                
+                # Show sanitization warnings
+                if warnings:
+                    warning_msg = "Imported data was sanitized:\n\n" + "\n".join(warnings)
+                    QMessageBox.information(self, "Import Sanitization", warning_msg)
+                
+                # Check for critical errors
+                if errors:
+                    error_msg = "Imported data has critical errors:\n\n" + "\n".join(errors)
+                    QMessageBox.warning(self, "Import Error", error_msg)
+                    return
+                
+                # Update waveform info with sanitized data
+                waveform_info.name = sanitized_metadata['name']
+                waveform_info.description = sanitized_metadata['description']
+                waveform_info.author = sanitized_metadata['author']
+                waveform_info.category = sanitized_metadata['category']
+                waveform_info.glsl_code = sanitized_metadata['glsl_code']
 
                 # Check if waveform already exists
                 if self.waveform_manager.get_waveform(waveform_info.name):

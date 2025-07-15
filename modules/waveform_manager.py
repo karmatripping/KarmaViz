@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 from dataclasses import dataclass
 from modules.logging_config import get_logger
+from modules.input_sanitizer import input_sanitizer
 
 logger = get_logger("waveform_manager")
 
@@ -135,14 +136,37 @@ class WaveformInfo:
             fields.append(field_str)
             offset += str_len
 
+        # Sanitize the loaded data
+        metadata = {
+            'name': fields[0],
+            'category': fields[1],
+            'description': fields[2],
+            'author': fields[4],
+            'version': fields[5],
+            'glsl_code': fields[6]
+        }
+        
+        sanitized_metadata, warnings, errors = input_sanitizer.sanitize_all_metadata(metadata)
+        
+        # Log warnings and errors but don't fail loading
+        if warnings:
+            logger.warning(f"Sanitization warnings for loaded waveform: {warnings}")
+        if errors:
+            logger.error(f"Sanitization errors for loaded waveform: {errors}")
+            # For critical errors, use safe defaults
+            if 'name' in [e.split(':')[0] for e in errors]:
+                sanitized_metadata['name'] = "invalid_waveform"
+            if 'glsl_code' in [e.split(':')[0] for e in errors]:
+                sanitized_metadata['glsl_code'] = "// Invalid GLSL code was sanitized\nvoid main() {}"
+
         return cls(
-            name=fields[0],
-            category=fields[1],
-            description=fields[2],
-            complexity=fields[3],
-            author=fields[4],
-            version=fields[5],
-            glsl_code=fields[6],
+            name=sanitized_metadata['name'],
+            category=sanitized_metadata['category'],
+            description=sanitized_metadata['description'],
+            complexity=fields[3],  # Complexity is validated by UI, not sanitizer
+            author=sanitized_metadata['author'],
+            version=sanitized_metadata['version'],
+            glsl_code=sanitized_metadata['glsl_code'],
             is_builtin=is_builtin,
         )
 

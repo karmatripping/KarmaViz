@@ -13,4 +13,5 @@ presets/
 *.c
 *.so
 .gemini/*
-context.db
+context.db'
+
