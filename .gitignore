@@ -10,3 +10,7 @@ codebase_index.db
 .zencoder/
 presets/*
 presets/
+*.c
+*.so
+.gemini/*
+context.db
