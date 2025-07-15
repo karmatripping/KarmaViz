@@ -1131,11 +1131,6 @@ def main():
                     if hasattr(audio_processor, "set_device")
                     else None
                 ),
-                "audio_device": lambda v: (
-                    audio_processor.set_device(v)
-                    if hasattr(audio_processor, "set_device")
-                    else None
-                ),
                 "color_cycle_speed": lambda v: setattr(
                     vis, "color_cycle_speed_multiplier", v
                 ),
@@ -1227,6 +1222,8 @@ def main():
    
     except Exception as e:
         log_critical(f"Fatal error in main: {e}")
+        import traceback
+        traceback.print_exc()
    
     finally:
         # Cleanup
