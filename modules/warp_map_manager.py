@@ -13,6 +13,9 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 from modules.input_sanitizer import input_sanitizer
+from modules.logging_config import get_logger
+
+logger = get_logger("warp_map_manager")
 
 
 @dataclass
@@ -157,9 +160,9 @@ class WarpMapInfo:
         
         # Log warnings and errors but don't fail loading
         if warnings:
-            print(f"Sanitization warnings for loaded warp map: {warnings}")
+            logger.warning(f"Sanitization warnings for loaded warp map '{metadata.get('name', 'unknown')}': {warnings}")
         if errors:
-            print(f"Sanitization errors for loaded warp map: {errors}")
+            logger.error(f"Sanitization errors for loaded warp map '{metadata.get('name', 'unknown')}': {errors}")
             # For critical errors, use safe defaults
             if 'name' in [e.split(':')[0] for e in errors]:
                 sanitized_metadata['name'] = "invalid_warp_map"

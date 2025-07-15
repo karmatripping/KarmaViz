@@ -38,7 +38,7 @@ class InputSanitizer:
     MAX_FILE_SIZE = 1024 * 1024  # 1MB limit for imported files
     
     # Allowed characters for different fields
-    NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\s\.\(\)]+$')  # Allow parentheses for names
+    NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\s\.\(\)\u00C0-\u017F]+$')  # Allow parentheses and Latin extended chars for names
     VERSION_PATTERN = re.compile(r'^[0-9]+\.[0-9]+(\.[0-9]+)?([a-zA-Z0-9\-]*)?$')
     CATEGORY_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]+$')
     AUTHOR_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\s\.\@\(\)<>]+$')  # Allow @, (), <> for authors
@@ -51,8 +51,7 @@ class InputSanitizer:
         # Potential shader bombs or infinite loops
         r'while\s*\(\s*true\s*\)',
         r'for\s*\([^;]*;\s*true\s*;[^)]*\)',
-        # Excessive recursion patterns
-        r'(\w+)\s*\([^)]*\)\s*{[^}]*\1\s*\(',  # Simple recursion detection
+        # Note: Removed overly aggressive recursion detection that was causing false positives
     ]
     
     # Allowed GLSL built-in functions and keywords
